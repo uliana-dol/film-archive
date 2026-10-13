@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Film Archive</title>
+    <style>
+        :root { --bg-color: #f7f6f2; --text-color: #3b302a; --accent-color: #8c7362; --card-bg: #fffcf9; --border-radius: 8px; }
+        body { font-family: 'Georgia', serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; }
+        
+        nav { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 5%; background-color: white; box-shadow: 0 2px 10px rgba(0,0,0,0.02); position: relative;}
+        .logo { font-size: 1.8rem; font-weight: bold; font-style: italic; }
+        .nav-links { display: flex; gap: 2rem; }
+        .nav-links a { text-decoration: none; color: var(--text-color); cursor: pointer; padding-bottom: 5px; }
+        .nav-links a.active { font-weight: bold; border-bottom: 2px solid var(--accent-color); }
+        .burger { display: none; cursor: pointer; font-size: 1.8rem; }
+
+        @media (max-width: 768px) {
+            .nav-links { display: none; flex-direction: column; position: absolute; top: 100%; left: 0; background: white; width: 100%; text-align: center; padding: 1rem 0; box-shadow: 0 4px 10px rgba(0,0,0,0.05); z-index: 10; gap: 1rem;}
+            .nav-links.active { display: flex; }
+            .burger { display: block; }
+        }
+
+        .container { max-width: 1100px; margin: 2rem auto; padding: 0 5%; }
+        
+        #auth-screen { display: block; }
+        #home-screen { display: none; }
+        #library-screen { display: none; }
+
+        .form-container { max-width: 600px; margin: 0 auto; background: white; padding: 2.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); }
+        .form-container h1 { text-align: center; color: var(--accent-color); margin-top: 0; margin-bottom: 1.5rem; }
+        .add-form { display: flex; flex-direction: column; gap: 15px; }
+        input, select, button, textarea { padding: 12px; border: 1px solid #e0dcd3; border-radius: 4px; font-family: inherit; font-size: 1rem; width: 100%; box-sizing: border-box; }
+        button { background-color: var(--accent-color); color: white; border: none; cursor: pointer; font-weight: bold; margin-top: 10px; transition: 0.2s; }
+        button:hover { opacity: 0.9; }
+        
+        .photo-inputs { display: flex; gap: 10px; flex-wrap: wrap; }
+        .file-upload-wrapper { flex: 1; min-width: 200px; position: relative; display: flex; flex-direction: column; justify-content: center; padding: 10px; border: 1px dashed var(--accent-color); border-radius: 4px; background: #faf9f7; cursor: pointer; text-align: center;}
+        .file-upload-wrapper input[type="file"] { position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer; }
+        .file-name-display { font-size: 0.8rem; color: #777; font-style: italic; }
+
+        .toolbar { display: flex; justify-content: space-between; margin-bottom: 1rem; align-items: center; }
+        
+        .media-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 2rem; }
+        .card { background: white; border-radius: var(--border-radius); overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.04); position: relative; display: flex; flex-direction: column; transition: transform 0.2s;}
+        .card:hover { transform: translateY(-5px); }
+        .poster { width: 100%; height: 350px; object-fit: contain; background-color: #e0dcd3; cursor: pointer; }
+        .card-content { padding: 1.2rem; flex-grow: 1; display: flex; flex-direction: column; }
+        .card h3 { margin: 0 0 10px 0; font-size: 1.3rem; cursor: pointer; color: var(--text-color);}
+        .card h3:hover { color: var(--accent-color); }
+        .tag { font-size: 0.8rem; background: var(--bg-color); padding: 5px 10px; border-radius: 20px; display: inline-block; margin-bottom: 5px; }
+        .card-actions { margin-top: auto; padding-top: 15px; display: flex; gap: 10px; }
+        .btn-edit { background: none; border: 1px solid var(--accent-color); color: var(--accent-color); padding: 5px 10px; border-radius: 4px; cursor: pointer; width: 100%; }
+        .delete-btn { position: absolute; top: 10px; right: 10px; background: rgba(255,255,255,0.8); border: none; color: #d9534f; cursor: pointer; border-radius: 50%; width: 30px; height: 30px; font-weight: bold; font-size: 1rem; display: flex; justify-content: center; align-items: center; padding: 0; }
+
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; padding: 20px; box-sizing: border-box;}
+        .modal-content { background: white; padding: 2rem; border-radius: 8px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; position: relative;}
+        .close-modal { position: absolute; top: 15px; right: 20px; font-size: 1.5rem; cursor: pointer; color: #777; }
+        
+        .details-poster { width: 100%; max-height: 400px; object-fit: contain; border-radius: 8px; margin-bottom: 15px; background: #eee;}
+        .details-plot { font-style: italic; color: #555; line-height: 1.5; margin-top: 10px; padding: 10px; background: var(--bg-color); border-radius: 8px;}
+        
+        .season-section { margin-top: 2rem; }
+        .season-title { border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px; color: var(--accent-color); }
+    </style>
+</head>
+<body>
+
+    <nav id="mainNav" style="display: none;">
+        <div class="logo">Film Archive</div>
+        <div class="burger" onclick="toggleMenu()">☰</div>
+        <div class="nav-links" id="navLinks">
+            <a onclick="switchTab('home')" id="tab-home" class="active">Add New</a>
+            <a onclick="switchTab('library')" id="tab-library">My Library</a>
+            <a onclick="switchTab('wishlist')" id="tab-wishlist">Wishlist</a>
+            <a onclick="switchTab('season')" id="tab-season">Season</a>
+            <a onclick="logout()" style="color: #d9534f; cursor: pointer;">Logout</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div id="auth-screen">
+            <div class="form-container" style="text-align: center;">
+                <h1>Welcome to CozyReel</h1>
+                <p>Log in or create a profile to save your library</p>
+                <form class="add-form" id="authForm" style="margin-top: 20px;">
+                    <input type="text" id="auth_username" placeholder="Username" required>
+                    <input type="password" id="auth_password" placeholder="Password" required>
+                    <div style="display: flex; gap: 10px; margin-top: 10px;">
+                        <button type="button" onclick="handleAuth('login')" style="flex: 1;">Login</button>
+                        <button type="button" onclick="handleAuth('register')" style="flex: 1; background: #e0dcd3; color: var(--text-color);">Register</button>
+                    </div>
+                    <p id="auth_msg" style="color: #d9534f; font-size: 0.9rem; margin-top: 10px;"></p>
+                </form>
+            </div>
+        </div>
+
+        <div id="home-screen">
+            <div class="form-container">
+                <h1>Add to your library</h1>
+                <form class="add-form" id="mediaForm">
+                    <input type="text" id="title" placeholder="Title (e.g. Lighter and Princess)" required>
+                    <select id="media_type">
+                        <option value="Movie">Movie</option>
+                        <option value="Drama">Dorama</option>
+                        <option value="TV Show">TV Show</option>
+                        <option value="Anime">Anime</option>
+                        <option value="Cartoon">Cartoon</option>
+                    </select>
+                    <select id="watch_status" onchange="toggleRatingField()">
+                        <option value="Plan to Watch">Plan to Watch</option>
+                        <option value="Watching">Watching</option>
+                        <option value="Completed">Completed</option>
+                    </select>
+                    <input type="number" id="rating_input" placeholder="Rating (1-10)" min="1" max="10" style="display: none;">
+                    <select id="season_vibe">
+                        <option value="None">No Season Vibe</option>
+                        <option value="Winter">Winter</option>
+                        <option value="Spring">Spring</option>
+                        <option value="Summer">Summer</option>
+                        <option value="Autumn">Autumn</option>
+                    </select>
+                    
+                    <div class="photo-inputs">
+                        <div class="file-upload-wrapper">
+                            <span style="font-weight: bold; color: var(--accent-color);">📷 Gallery</span>
+                            <span class="file-name-display" id="file-name-display">Or leave empty for auto-fetch</span>
+                            <input type="file" id="custom_poster_file" accept="image/*">
+                        </div>
+                        <input type="url" id="custom_poster_url" placeholder="🔗 Paste Image URL from Web" style="flex: 1; min-width: 200px;">
+                    </div>
+                    
+                    <button type="submit">Save Entry</button>
+                </form>
+            </div>
+        </div>
+
+        <div id="library-screen">
+            <div class="toolbar" id="toolbar">
+                <h2 id="page-title">My Library</h2>
+                <select id="sortOrder" onchange="renderMedia()" style="width: auto;">
+                    <option value="newest">Newest Added</option>
+                    <option value="rating">Highest Rating</option>
+                </select>
+            </div>
+            <div id="mediaGrid"></div>
+        </div>
+    </div>
+
+    <div class="modal" id="detailsModal">
+        <div class="modal-content">
+            <div class="close-modal" onclick="closeModals()">✖</div>
+            <img id="det_poster" class="details-poster" src="">
+            <h2 id="det_title" style="margin:0; color: var(--accent-color);"></h2>
+            <div style="margin-top: 5px;">
+                <span class="tag" id="det_type"></span>
+                <span class="tag" id="det_status"></span>
+                <span class="tag" id="det_rating"></span>
+            </div>
+            <p style="margin-top: 15px; color: #444;">
+                <span id="det_genre"></span><br>
+                <span id="det_country_year"></span><br>
+                <span id="det_duration"></span>
+            </p>
+            <div class="details-plot" id="det_plot"></div>
+        </div>
+    </div>
+
+    <div class="modal" id="editModal">
+        <div class="modal-content">
+            <div class="close-modal" onclick="closeModals()">✖</div>
+            <h3 style="margin-top: 0;">Edit Information</h3>
+            <input type="text" id="edit_title" placeholder="Title">
+            <select id="edit_status">
+                <option value="Plan to Watch">Plan to Watch</option>
+                <option value="Watching">Watching</option>
+                <option value="Completed">Completed</option>
+            </select>
+            <input type="number" id="edit_rating" placeholder="Rating (1-10)" min="1" max="10">
+            <select id="edit_season">
+                <option value="None">No Season Vibe</option>
+                <option value="Winter">Winter</option>
+                <option value="Spring">Spring</option>
+                <option value="Summer">Summer</option>
+                <option value="Autumn">Autumn</option>
+            </select>
+            <input type="text" id="edit_genre" placeholder="Genre">
+            <input type="text" id="edit_year" placeholder="Release Year">
+            <input type="text" id="edit_country" placeholder="Country">
+            <input type="text" id="edit_duration" placeholder="Duration / Episodes">
+            <input type="text" id="edit_actors" placeholder="Actors">
+            <textarea id="edit_plot" rows="4" placeholder="Plot / Summary"></textarea>
+            
+            <button onclick="saveEdit()">Save Changes</button>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = '/api/media';
+        let allMedia = [];
+        let currentTab = 'home';
+        let base64Image = null; 
+        let editId = null;
+
+        function getAuthHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            };
+        }
+
+        async function handleAuth(action) {
+            const username = document.getElementById('auth_username').value;
+            const password = document.getElementById('auth_password').value;
+            const res = await fetch(`/api/auth/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+            
+            if (res.ok) {
+                if (action === 'register') {
+                    document.getElementById('auth_msg').style.color = 'green';
+                    document.getElementById('auth_msg').innerText = 'Registered successfully! Now click Login.';
+                } else {
+                    localStorage.setItem('token', data.token);
+                    checkAuth();
+                }
+            } else {
+                document.getElementById('auth_msg').style.color = '#d9534f';
+                document.getElementById('auth_msg').innerText = data.error;
+            }
+        }
+
+        function checkAuth() {
+            const token = localStorage.getItem('token');
+            if (token) {
+                document.getElementById('auth-screen').style.display = 'none';
+                document.getElementById('mainNav').style.display = 'flex';
+                switchTab('library');
+                fetchData();
+            } else {
+                document.getElementById('auth-screen').style.display = 'block';
+                document.getElementById('mainNav').style.display = 'none';
+                document.getElementById('home-screen').style.display = 'none';
+                document.getElementById('library-screen').style.display = 'none';
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('token');
+            checkAuth();
+        }
+
+        function toggleMenu() { document.getElementById('navLinks').classList.toggle('active'); }
+
+        document.getElementById('custom_poster_file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const display = document.getElementById('file-name-display');
+            if (file) {
+                display.innerText = file.name;
+                const reader = new FileReader();
+                reader.onload = function(event) { base64Image = event.target.result; };
+                reader.readAsDataURL(file);
+            } else {
+                display.innerText = 'Or leave empty for auto-fetch';
+                base64Image = null;
+            }
+        });
+
+        function toggleRatingField() {
+            const status = document.getElementById('watch_status').value;
+            const ratingField = document.getElementById('rating_input');
+            if (status === 'Completed') {
+                ratingField.style.display = 'block';
+                ratingField.required = true;
+            } else {
+                ratingField.style.display = 'none';
+                ratingField.required = false;
+                ratingField.value = '';
+            }
+        }
+
+        async function fetchData() {
+            const res = await fetch(API_URL, { headers: getAuthHeaders() });
+            if (res.status === 401 || res.status === 403) return logout();
+            allMedia = await res.json();
+            renderMedia();
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.nav-links a').forEach(a => a.classList.remove('active'));
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            document.getElementById('navLinks').classList.remove('active'); 
+            
+            if (tab === 'home') {
+                document.getElementById('home-screen').style.display = 'block';
+                document.getElementById('library-screen').style.display = 'none';
+            } else {
+                document.getElementById('home-screen').style.display = 'none';
+                document.getElementById('library-screen').style.display = 'block';
+                document.getElementById('page-title').innerText = tab === 'library' ? 'My Library' : tab === 'wishlist' ? 'Wishlist' : 'Seasonal Vibes';
+                document.getElementById('sortOrder').style.display = tab === 'season' ? 'none' : 'block';
+                renderMedia();
+            }
+        }
+
+        function renderMedia() {
+            const grid = document.getElementById('mediaGrid');
+            grid.innerHTML = '';
+            let filtered = [...allMedia];
+
+            if (currentTab === 'wishlist') filtered = filtered.filter(m => m.watch_status === 'Plan to Watch');
+            
+            const sort = document.getElementById('sortOrder').value;
+            if (sort === 'rating') filtered.sort((a, b) => (b.rating || 0) - (a.rating || 0));
+
+            if (currentTab === 'season') {
+                ['Winter', 'Spring', 'Summer', 'Autumn'].forEach(season => {
+                    const sm = filtered.filter(m => m.season_vibe === season);
+                    if(sm.length > 0) {
+                        grid.innerHTML += `<div class="season-section"><h2 class="season-title">${season}</h2><div class="media-grid">${sm.map(m => createCardHTML(m)).join('')}</div></div>`;
+                    }
+                });
+                return;
+            }
+
+            grid.className = 'media-grid';
+            grid.innerHTML = filtered.map(m => createCardHTML(m)).join('');
+        }
+
+        function createCardHTML(item) {
+            const poster = item.poster_url || 'https://via.placeholder.com/600x900?text=No+Poster';
+            const itemJson = JSON.stringify(item).replace(/'/g, "&#39;").replace(/"/g, "&quot;");
+            
+            return `
+                <div class="card">
+                    <button class="delete-btn" onclick="deleteMedia(${item.id})">✖</button>
+                    <img src="${poster}" class="poster" onclick="viewDetails('${itemJson}')">
+                    <div class="card-content">
+                        <h3 onclick="viewDetails('${itemJson}')">${item.title} ${item.release_year ? `(${item.release_year})` : ''}</h3>
+                        <div><span class="tag">${item.media_type}</span> <span class="tag">${item.watch_status}</span></div>
+                        <p style="margin-top: 10px; font-size: 0.9rem; color: #777;">
+                            ${item.genre ? `🎬 ${item.genre}<br>` : ''}
+                            ${item.rating ? `⭐ Rating: ${item.rating}/10` : '⭐ Not rated yet'}
+                        </p>
+                        <div class="card-actions">
+                            <button class="btn-edit" onclick="openEdit('${itemJson}')">✎ Edit Info</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        document.getElementById('mediaForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.innerText = 'Searching Internet...';
+            
+            const newItem = {
+                title: document.getElementById('title').value,
+                media_type: document.getElementById('media_type').value,
+                watch_status: document.getElementById('watch_status').value,
+                season_vibe: document.getElementById('season_vibe').value,
+                rating: document.getElementById('rating_input').value || null,
+                custom_poster: base64Image,
+                custom_url: document.getElementById('custom_poster_url').value || null
+            };
+
+            await fetch(API_URL, { 
+                method: 'POST', 
+                headers: getAuthHeaders(), 
+                body: JSON.stringify(newItem) 
+            });
+            
+            e.target.reset();
+            document.getElementById('file-name-display').innerText = 'Or leave empty for auto-fetch';
+            base64Image = null;
+            toggleRatingField(); 
+            btn.innerText = 'Save Entry';
+            
+            await fetchData();
+            switchTab('library'); 
+        });
+
+        function closeModals() {
+            document.getElementById('detailsModal').style.display = 'none';
+            document.getElementById('editModal').style.display = 'none';
+        }
+
+        function viewDetails(itemJson) {
+            const item = JSON.parse(itemJson);
+            document.getElementById('det_poster').src = item.poster_url || 'https://via.placeholder.com/600x900?text=No+Poster';
+            document.getElementById('det_title').innerText = item.title;
+            document.getElementById('det_type').innerText = item.media_type;
+            document.getElementById('det_status').innerText = item.watch_status;
+            document.getElementById('det_rating').innerText = item.rating ? `⭐ ${item.rating}/10` : 'No rating';
+            
+            document.getElementById('det_genre').innerHTML = item.genre ? `<b>Genre:</b> ${item.genre}` : '';
+            document.getElementById('det_country_year').innerHTML = `<b>Release:</b> ${item.country || '?'} ${item.release_year ? `(${item.release_year})` : ''}`;
+            document.getElementById('det_duration').innerHTML = item.duration ? `<b>Duration:</b> ${item.duration}` : '';
+            
+            const oldActors = document.getElementById('det_actors_container');
+            if (oldActors) oldActors.remove();
+
+            if (item.actors) {
+                const actorsHtml = `<span id="det_actors_container"><br><b>Actors:</b> ${item.actors}</span>`;
+                document.getElementById('det_country_year').insertAdjacentHTML('afterend', actorsHtml);
+            }
+
+            document.getElementById('det_plot').innerHTML = item.plot || 'No plot summary available.';
+            document.getElementById('detailsModal').style.display = 'flex';
+        }
+
+        function openEdit(itemJson) {
+            const item = JSON.parse(itemJson);
+            editId = item.id;
+            document.getElementById('edit_title').value = item.title || '';
+            document.getElementById('edit_status').value = item.watch_status;
+            document.getElementById('edit_rating').value = item.rating || '';
+            document.getElementById('edit_season').value = item.season_vibe;
+            document.getElementById('edit_genre').value = item.genre || '';
+            document.getElementById('edit_year').value = item.release_year || '';
+            document.getElementById('edit_country').value = item.country || '';
+            document.getElementById('edit_duration').value = item.duration || '';
+            document.getElementById('edit_actors').value = item.actors || '';
+            document.getElementById('edit_plot').value = item.plot || '';
+            
+            document.getElementById('editModal').style.display = 'flex';
+        }
+        
+        async function saveEdit() {
+            const updated = {
+                title: document.getElementById('edit_title').value,
+                watch_status: document.getElementById('edit_status').value,
+                rating: document.getElementById('edit_rating').value || null,
+                season_vibe: document.getElementById('edit_season').value,
+                genre: document.getElementById('edit_genre').value,
+                release_year: document.getElementById('edit_year').value,
+                country: document.getElementById('edit_country').value,
+                duration: document.getElementById('edit_duration').value,
+                actors: document.getElementById('edit_actors').value,
+                plot: document.getElementById('edit_plot').value
+            };
+            await fetch(`${API_URL}/${editId}`, { 
+                method: 'PUT', 
+                headers: getAuthHeaders(), 
+                body: JSON.stringify(updated) 
+            });
+            closeModals();
+            fetchData();
+        }
+
+        async function deleteMedia(id) {
+            if(confirm("Are you sure you want to delete this?")) {
+                await fetch(`${API_URL}/${id}`, { 
+                    method: 'DELETE', 
+                    headers: getAuthHeaders() 
+                });
+                fetchData();
+            }
+        }
+
+        checkAuth();
+    </script>
+</body>
+</html>
