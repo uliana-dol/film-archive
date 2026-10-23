@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const swaggerUi = require('swagger-ui-express');
 const mediaRoutes = require('./routes/mediaRoutes');
 const authRoutes = require('./routes/authRoutes');
 require('dotenv').config();
@@ -20,28 +21,56 @@ app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`🎬 CozyReel is running on port ${PORT}`);
-});
-
-const swaggerUi = require('swagger-ui-express');
-
 const swaggerDocument = {
   openapi: '3.0.0',
   info: {
-    title: 'CozyReel Film Archive API',
+    title: 'Film Archive API',
     version: '1.0.0',
-    description: 'API для управління персональною бібліотекою фільмів та дорам',
+    description: 'REST API для управління персональною бібліотекою фільмів та дорам',
   },
   paths: {
     '/health': {
       get: {
-        summary: 'Health check endpoint',
-        responses: { '200': { description: 'Server is healthy' } }
+        summary: 'Health check ендпоінт для ALB',
+        responses: { '200': { description: 'Сервер працює нормально' } }
+      }
+    },
+    '/api/auth/register': {
+      post: {
+        summary: 'Реєстрація нового користувача',
+        responses: { '201': { description: 'Користувача створено' } }
+      }
+    },
+    '/api/auth/login': {
+      post: {
+        summary: 'Авторизація та отримання JWT-токена',
+        responses: { '200': { description: 'Успішний вхід' } }
+      }
+    },
+    '/api/films': {
+      get: {
+        summary: 'Отримати список фільмів',
+        responses: { '200': { description: 'Успішно' } }
+      },
+      post: {
+        summary: 'Додати фільм до бібліотеки (потрібен JWT)',
+        security: [{ bearerAuth: [] }],
+        responses: { '201': { description: 'Фільм додано' }, '401': { description: 'Неавторизовано' } }
+      }
+    },
+    '/api/films/{id}': {
+      delete: {
+        summary: 'Видалити фільм за ID (потрібен JWT)',
+        security: [{ bearerAuth: [] }],
+        responses: { '200': { description: 'Фільм видалено' }, '401': { description: 'Неавторизовано' } }
       }
     }
   }
 };
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`🎬 FilmArchive is running on port ${PORT}`);
+});

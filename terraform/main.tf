@@ -276,7 +276,7 @@ resource "aws_instance" "app_server" {
               DB_USER=admin
               DB_PASSWORD=FilmArchiveSecretPass2026!
               DB_NAME=appdb
-              OMDB_API_KEY=your_omdb_key
+              OMDB_API_KEY=d76acc34
               JWT_SECRET=super_secret_cozy_key
               EOT
 
@@ -336,43 +336,4 @@ output "rds_endpoint" {
 output "ecr_repository_url" {
   description = "URL для пушу образів в ECR"
   value       = aws_ecr_repository.app_repo.repository_url
-}
-
-
-resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-}
-
-resource "aws_iam_role" "github_ci_role" {
-  name = "filmarchive-github-ci-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Effect = "Allow"
-        Principal = {
-          Federated = aws_iam_openid_connect_provider.github.arn
-        }
-        Condition = {
-          StringLike = {
-            "token.actions.githubusercontent.com:sub" : "repo:uliana-dol/film-archive:*"
-          }
-        }
-      }
-    ]
-  })
-}
-
-resource "aws_iam_role_policy_attachment" "ecr_policy" {
-  role       = aws_iam_role.github_ci_role.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess"
-}
-
-output "github_role_arn" {
-  description = "ARN ролі для GitHub Actions OIDC"
-  value       = aws_iam_role.github_ci_role.arn
 }
