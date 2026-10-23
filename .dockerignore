@@ -1,0 +1,16 @@
+
+node_modules/
+npm-debug.log*
+.git/
+.github/
+.env
+.env.*
+!.env.example
+*.tfstate
+*.tfstate.*
+terraform/.terraform/
+coverage/
+dist/
+build/
+.DS_Store
+Thumbs.db

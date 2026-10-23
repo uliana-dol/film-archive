@@ -1,5 +1,24 @@
+
+# Node.js
+node_modules/
+npm-debug.log*
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Terraform
 terraform/.terraform/
 terraform/*.tfstate
-terraform/*.tfstate.backup
-.env
-node_modules/
+terraform/*.tfstate.*
+terraform/*.tfvars
+!terraform/*.tfvars.example
+terraform/crash.log
+
+# Local backups and Terraform configuration backups
+*.bak
+*.before-security

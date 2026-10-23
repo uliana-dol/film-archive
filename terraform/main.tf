@@ -180,7 +180,7 @@ resource "aws_db_instance" "mysql" {
   instance_class         = "db.t3.micro"
   db_name                = "appdb"
   username               = "admin"
-  password               = "FilmArchiveSecretPass2026!"
+  password               = var.db_password
   db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
   vpc_security_group_ids = [aws_security_group.db_sg.id]
   skip_final_snapshot    = true
@@ -273,11 +273,10 @@ resource "aws_instance" "app_server" {
               cat <<EOT > .env
               PORT=3000
               DB_HOST=${aws_db_instance.mysql.address}
-              DB_USER=admin
-              DB_PASSWORD=FilmArchiveSecretPass2026!
-              DB_NAME=appdb
-              OMDB_API_KEY=d76acc34
-              JWT_SECRET=super_secret_cozy_key
+              DB_USER=${var.app_db_username}
+              DB_PASSWORD=${var.db_password}
+              OMDB_API_KEY=${var.omdb_api_key}
+              JWT_SECRET=${var.jwt_secret}
               EOT
 
               docker-compose up --build -d
@@ -336,4 +335,10 @@ output "rds_endpoint" {
 output "ecr_repository_url" {
   description = "URL для пушу образів в ECR"
   value       = aws_ecr_repository.app_repo.repository_url
+}
+
+
+resource "random_password" "db_password" {
+  length           = 32
+  special          = false
 }
