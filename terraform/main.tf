@@ -128,12 +128,6 @@ resource "aws_security_group" "app_sg" {
     security_groups = [aws_security_group.alb_sg.id]
   }
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
 
   egress {
     from_port   = 0
@@ -339,6 +333,6 @@ output "ecr_repository_url" {
 
 
 resource "random_password" "db_password" {
-  length           = 32
-  special          = false
+  length  = 32
+  special = false
 }

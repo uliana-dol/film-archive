@@ -22,3 +22,5 @@ terraform/crash.log
 # Local backups and Terraform configuration backups
 *.bak
 *.before-security
+
+*.tfplan
