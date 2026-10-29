@@ -174,7 +174,7 @@ resource "aws_db_instance" "mysql" {
   instance_class         = "db.t3.micro"
   db_name                = "appdb"
   username               = "admin"
-  password               = var.db_password
+  password               = random_password.db_password.result
   db_subnet_group_name   = aws_db_subnet_group.rds_subnet_group.name
   vpc_security_group_ids = [aws_security_group.db_sg.id]
   skip_final_snapshot    = true
@@ -268,7 +268,7 @@ resource "aws_instance" "app_server" {
               PORT=3000
               DB_HOST=${aws_db_instance.mysql.address}
               DB_USER=${var.app_db_username}
-              DB_PASSWORD=${var.db_password}
+              DB_PASSWORD=${random_password.db_password.result}
               OMDB_API_KEY=${var.omdb_api_key}
               JWT_SECRET=${var.jwt_secret}
               EOT
@@ -335,4 +335,40 @@ output "ecr_repository_url" {
 resource "random_password" "db_password" {
   length  = 32
   special = false
+}
+
+resource "aws_cloudwatch_dashboard" "main" {
+  dashboard_name = "FilmArchive-Monitoring"
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric", x = 0, y = 0, width = 12, height = 6
+        properties = {
+          metrics = [["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.alb.arn_suffix]]
+          view    = "timeSeries", stacked = false, region = "eu-north-1", title = "Кількість запитів (Requests)"
+        }
+      },
+      {
+        type   = "metric", x = 12, y = 0, width = 12, height = 6
+        properties = {
+          metrics = [["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.alb.arn_suffix]]
+          view    = "timeSeries", stacked = false, region = "eu-north-1", title = "Помилки 5XX (Errors)"
+        }
+      },
+      {
+        type   = "metric", x = 0, y = 6, width = 12, height = 6
+        properties = {
+          metrics = [["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.alb.arn_suffix]]
+          view    = "timeSeries", stacked = false, region = "eu-north-1", title = "Латентність (Latency)"
+        }
+      },
+      {
+        type   = "metric", x = 12, y = 6, width = 12, height = 6
+        properties = {
+          metrics = [["AWS/EC2", "CPUUtilization", "InstanceId", aws_instance.app_server.id]]
+          view    = "timeSeries", stacked = false, region = "eu-north-1", title = "CPU Сервера"
+        }
+      }
+    ]
+  })
 }

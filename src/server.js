@@ -38,12 +38,40 @@ const swaggerDocument = {
     '/api/auth/register': {
       post: {
         summary: 'Реєстрація нового користувача',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  username: { type: 'string', example: 'uliana_test' },
+                  password: { type: 'string', example: 'SecurePass123!' }
+                }
+              }
+            }
+          }
+        },
         responses: { '201': { description: 'Користувача створено' } }
       }
     },
     '/api/auth/login': {
       post: {
         summary: 'Авторизація та отримання JWT-токена',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  username: { type: 'string', example: 'uliana_test' },
+                  password: { type: 'string', example: 'SecurePass123!' }
+                }
+              }
+            }
+          }
+        },
         responses: { '200': { description: 'Успішний вхід' } }
       }
     },
@@ -55,6 +83,23 @@ const swaggerDocument = {
       post: {
         summary: 'Додати фільм до бібліотеки (потрібен JWT)',
         security: [{ bearerAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  title: { type: 'string', example: 'Inception' },
+                  type: { type: 'string', example: 'Movie' },
+                  status: { type: 'string', example: 'Watched' },
+                  seasonVibe: { type: 'string', example: 'Autumn' },
+                  posterUrl: { type: 'string', example: 'https://via.placeholder.com/300.png' }
+                }
+              }
+            }
+          }
+        },
         responses: { '201': { description: 'Фільм додано' }, '401': { description: 'Неавторизовано' } }
       }
     },
@@ -62,7 +107,24 @@ const swaggerDocument = {
       delete: {
         summary: 'Видалити фільм за ID (потрібен JWT)',
         security: [{ bearerAuth: [] }],
+        parameters: [
+          {
+            name: 'id',
+            in: 'path',
+            required: true,
+            schema: { type: 'string' }
+          }
+        ],
         responses: { '200': { description: 'Фільм видалено' }, '401': { description: 'Неавторизовано' } }
+      }
+    }
+  },
+  components: {
+    securitySchemes: {
+      bearerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT'
       }
     }
   }

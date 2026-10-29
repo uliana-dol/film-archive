@@ -1,9 +1,3 @@
-variable "db_password" {
-  description = "Password for the Film Archive RDS database"
-  type        = string
-  sensitive   = true
-}
-
 variable "jwt_secret" {
   description = "Secret used to sign JWT tokens"
   type        = string
