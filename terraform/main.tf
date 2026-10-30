@@ -247,33 +247,39 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+
 resource "aws_instance" "app_server" {
-  ami                    = data.aws_ami.ubuntu.id
-  instance_type          = "t3.micro"
-  subnet_id              = aws_subnet.public_1.id
-  vpc_security_group_ids = [aws_security_group.app_sg.id]
+  ami                         = data.aws_ami.ubuntu.id
+  instance_type               = "t3.micro"
+  subnet_id                   = aws_subnet.public_1.id
+  vpc_security_group_ids      = [aws_security_group.app_sg.id]
+  user_data_replace_on_change = true
 
   user_data = <<-EOF
               #!/bin/bash
+              set -e
               apt-get update
               apt-get install -y docker.io docker-compose git
               systemctl start docker
               systemctl enable docker
-
+              
               cd /home/ubuntu
+              umask 077
               git clone https://github.com/uliana-dol/film-archive.git
               cd film-archive
 
               cat <<EOT > .env
               PORT=3000
               DB_HOST=${aws_db_instance.mysql.address}
-              DB_USER=${var.app_db_username}
+              DB_PORT=3306
+              DB_NAME=${aws_db_instance.mysql.db_name}
+              DB_USER=${aws_db_instance.mysql.username}
               DB_PASSWORD=${random_password.db_password.result}
               OMDB_API_KEY=${var.omdb_api_key}
               JWT_SECRET=${var.jwt_secret}
               EOT
 
-              docker-compose up --build -d
+              docker-compose -f compose.aws.yaml up --build -d
               EOF
 
   tags = {
@@ -342,28 +348,28 @@ resource "aws_cloudwatch_dashboard" "main" {
   dashboard_body = jsonencode({
     widgets = [
       {
-        type   = "metric", x = 0, y = 0, width = 12, height = 6
+        type = "metric", x = 0, y = 0, width = 12, height = 6
         properties = {
           metrics = [["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.alb.arn_suffix]]
           view    = "timeSeries", stacked = false, region = "eu-north-1", title = "Кількість запитів (Requests)"
         }
       },
       {
-        type   = "metric", x = 12, y = 0, width = 12, height = 6
+        type = "metric", x = 12, y = 0, width = 12, height = 6
         properties = {
           metrics = [["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.alb.arn_suffix]]
           view    = "timeSeries", stacked = false, region = "eu-north-1", title = "Помилки 5XX (Errors)"
         }
       },
       {
-        type   = "metric", x = 0, y = 6, width = 12, height = 6
+        type = "metric", x = 0, y = 6, width = 12, height = 6
         properties = {
           metrics = [["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.alb.arn_suffix]]
           view    = "timeSeries", stacked = false, region = "eu-north-1", title = "Латентність (Latency)"
         }
       },
       {
-        type   = "metric", x = 12, y = 6, width = 12, height = 6
+        type = "metric", x = 12, y = 6, width = 12, height = 6
         properties = {
           metrics = [["AWS/EC2", "CPUUtilization", "InstanceId", aws_instance.app_server.id]]
           view    = "timeSeries", stacked = false, region = "eu-north-1", title = "CPU Сервера"
