@@ -1,243 +1,422 @@
-# Film Archive API — AWS Cloud Deployment
 
-**Навчальний проєкт з дисципліни «Хмарні технології»**  
-**Виконала:** Долинська Уляна, група ІР-31
+# FilmArchive — AWS Cloud Deployment
 
-Film Archive — REST API для каталогу фільмів і дорам. Застосунок побудований на Node.js та Express, використовує MySQL, запускається в Docker і розгортається в AWS за допомогою Terraform.
+**Лабораторна робота з хмарних технологій**  
+**Виконала:** Долинська Уляна, група ІР-31  
+**GitHub:** https://github.com/uliana-dol/film-archive
 
-## 1. Технології
+FilmArchive (CozyReel) — вебзастосунок для персонального обліку фільмів та іншого медіаконтенту.
 
-- **Backend:** Node.js, Express
-- **Database:** MySQL 8.0
-- **Containerization:** Docker, Docker Compose
-- **Infrastructure as Code:** Terraform
-- **AWS:** EC2, Application Load Balancer, Amazon RDS, Amazon ECR, VPC, Security Groups, CloudWatch, SNS
-- **CI/CD:** GitHub Actions
-- **API documentation:** Swagger UI / OpenAPI
-- **Authentication:** JWT
+Проєкт реалізований на Node.js та Express, використовує MySQL для збереження даних, JWT для авторизації й Docker для контейнеризації.
 
-## 2. Архітектура
+Застосунок розгорнуто в AWS із використанням Terraform, EC2, Amazon RDS, Application Load Balancer, Amazon ECR та AWS Systems Manager. Автоматичне збирання й розгортання реалізоване через GitHub Actions.
 
-Схема взаємодії компонентів:
+## 1. Посилання на застосунок
+
+- **Вебсайт:** http://filmarchive-alb-1333188652.eu-north-1.elb.amazonaws.com/
+- **Swagger UI:** http://filmarchive-alb-1333188652.eu-north-1.elb.amazonaws.com/api-docs/
+- **Health check:** http://filmarchive-alb-1333188652.eu-north-1.elb.amazonaws.com/health
+- **GitHub Actions:** https://github.com/uliana-dol/film-archive/actions
+
+
+## 2. Використані технології
+
+| Компонент | Технологія |
+|---|---|
+| Backend | Node.js 20, Express |
+| Frontend | HTML, CSS, JavaScript |
+| База даних | MySQL 8 |
+| Авторизація | JWT, bcryptjs |
+| Контейнеризація | Docker, Docker Compose |
+| Хмарний провайдер | Amazon Web Services |
+| Infrastructure as Code | Terraform |
+| Сервер застосунку | Amazon EC2 |
+| Керована база даних | Amazon RDS |
+| Балансування навантаження | Application Load Balancer |
+| Реєстр образів | Amazon ECR |
+| CI/CD | GitHub Actions |
+| Віддалене розгортання | AWS Systems Manager |
+| Моніторинг | Amazon CloudWatch |
+| Документація API | Swagger UI |
+
+## 3. Архітектура AWS
 
 ```text
-                 User / Client
+                  КОРИСТУВАЧ
                        |
                        v
             Application Load Balancer
+                  HTTP :80
                        |
                        v
-                 EC2 Application
+                  Amazon EC2
+               Docker Container
+                 Node.js :3000
                        |
                        v
-                 Amazon RDS
-                  MySQL 8.0
+                  Amazon RDS
+                 MySQL :3306
+                Private Subnets
 
-GitHub Repository
-        |
-        v
- GitHub Actions
-        |
-        v
- Amazon ECR
+
+            АВТОМАТИЧНИЙ ДЕПЛОЙ
+
+                GitHub Repository
+                       |
+                  Push to main
+                       |
+                       v
+                 GitHub Actions
+                       |
+                 Docker Build
+                       |
+                       v
+                   Amazon ECR
+                       |
+                 Docker Image
+                       |
+                       v
+              AWS Systems Manager
+                       |
+                       v
+                  Amazon EC2
+                       |
+                Docker Compose
+                       |
+                       v
+               Updated FilmArchive
 ```
 
-Інфраструктура AWS описана в каталозі `terraform/`.
+Інфраструктура створюється за допомогою Terraform.
 
-- ALB приймає HTTP-запити від користувачів і передає їх застосунку.
-- EC2 запускає контейнеризований застосунок.
-- Amazon RDS використовується як керована база даних MySQL.
-- Amazon ECR зберігає Docker-образи застосунку.
-- Terraform описує мережу, обчислювальні ресурси, базу даних і балансувальник навантаження.
+Вона містить:
 
-## 3. Структура репозиторію
+- VPC із публічними та приватними підмережами;
+- Internet Gateway та маршрутизацію;
+- Security Groups для ALB, EC2 та RDS;
+- Application Load Balancer;
+- EC2 для запуску Docker-контейнера;
+- Amazon RDS MySQL для постійного збереження даних;
+- Amazon ECR для Docker-образів;
+- CloudWatch Dashboard та Alarm.
+
+База даних RDS розміщена в приватних підмережах і не має публічного доступу.
+
+Security Group RDS дозволяє з'єднання з MySQL лише від Security Group застосунку. Порт 3000 сервера доступний через ALB.
+
+## 4. Структура проєкту
 
 ```text
-film_archive/
-├── .github/
-│   └── workflows/
-│       └── deploy.yml
-├── terraform/
-│   ├── main.tf
-│   ├── variables.tf
-│   ├── outputs.tf
-│   └── ...
-├── Dockerfile
-├── compose.yaml
-├── package.json
-├── package-lock.json
-├── server.js
-├── README.md
-└── .gitignore
+film-archive/
+|
+|-- .github/
+|   `-- workflows/
+|       `-- deploy.yml
+|
+|-- scripts/
+|   `-- deploy-ec2.sh
+|
+|-- terraform/
+|   `-- main.tf
+|
+|-- src/
+|   |-- config/
+|   |-- controllers/
+|   |-- routes/
+|   `-- server.js
+|
+|-- public/
+|-- Dockerfile
+|-- compose.yaml
+|-- compose.aws.yaml
+|-- init.sql
+|-- .env.example
+|-- package.json
+`-- README.md
 ```
 
-Основні файли:
+Призначення основних файлів:
 
-- `server.js` — сервер і маршрути API.
-- `package.json` та `package-lock.json` — залежності Node.js.
-- `Dockerfile` — інструкції для створення Docker-образу.
-- `compose.yaml` — локальний запуск застосунку та MySQL.
-- `.github/workflows/deploy.yml` — автоматизація збірки та публікації Docker-образу.
-- `terraform/main.tf` — опис інфраструктури AWS.
-- `terraform/variables.tf` — змінні Terraform.
-- `terraform/outputs.tf` — вихідні значення, зокрема адреси AWS-ресурсів.
+- `Dockerfile` — створення Docker-образу застосунку.
+- `compose.yaml` — локальний запуск API та MySQL.
+- `compose.aws.yaml` — запуск готового ECR-образу на EC2.
+- `terraform/main.tf` — опис AWS-інфраструктури.
+- `.github/workflows/deploy.yml` — автоматична збірка та деплой.
+- `scripts/deploy-ec2.sh` — оновлення контейнера з перевіркою стану.
+- `init.sql` — створення таблиць бази даних.
 
-## 4. Локальний запуск
+## 5. Локальний запуск
 
 ### Вимоги
 
-- Docker Desktop із Docker Compose
-- Git
-- PowerShell або інший термінал
+Для локального запуску необхідні:
 
-Клонуйте репозиторій і перейдіть до його каталогу:
+- Git;
+- Docker Desktop;
+- Docker Compose v2.
+
+### Клонування репозиторію
 
 ```bash
 git clone https://github.com/uliana-dol/film-archive.git
 cd film-archive
 ```
 
-Запустіть застосунок:
+### Налаштування середовища
+
+Створити файл `.env` на основі `.env.example`.
+
+Налаштувати необхідні змінні середовища, зокрема:
+
+```env
+DB_HOST=db
+DB_PORT=3306
+DB_USER=appuser
+DB_NAME=appdb
+DB_PASSWORD=your_local_db_password
+MYSQL_ROOT_PASSWORD=your_local_root_password
+JWT_SECRET=your_local_jwt_secret
+```
+
+Ці значення є прикладами. Для реального запуску потрібно встановити власні паролі й секрети.
+
+Файл `.env` не повинен потрапляти в GitHub.
+
+### Запуск контейнерів
 
 ```bash
 docker compose up --build -d
 ```
 
-Перевірте стан контейнерів:
+### Перевірка
 
 ```bash
 docker compose ps
 ```
 
-Перевірте доступність застосунку:
+Локальні адреси:
 
-```text
-http://localhost:3000
+- Сайт: http://localhost:3000/
+- Swagger: http://localhost:3000/api-docs/
+- Health check: http://localhost:3000/health
+
+Локальна база MySQL використовує Docker volume `db_data` для збереження даних.
+
+Команда `docker compose down` зупиняє контейнери без видалення тому. Команда `docker compose down -v` видаляє також том із локальними даними.
+
+## 6. REST API
+
+Застосунок реалізує REST API для авторизації та керування медіакаталогом.
+
+| Метод | Endpoint | Призначення |
+|---|---|---|
+| POST | `/api/auth/register` | Реєстрація користувача |
+| POST | `/api/auth/login` | Авторизація |
+| GET | `/api/media` | Отримання записів користувача |
+| POST | `/api/media` | Додавання запису |
+| PUT | `/api/media/:id` | Редагування запису |
+| DELETE | `/api/media/:id` | Видалення запису |
+| GET | `/health` | Перевірка роботи сервера |
+| GET | `/api/health` | Перевірка стану API |
+
+Маршрути медіакаталогу захищені JWT.
+
+Для виконання авторизованих запитів необхідно передавати заголовок:
+
+```http
+Authorization: Bearer <JWT_TOKEN>
 ```
 
-Перевірте документацію API:
+Без авторизації запит до `/api/media` повертає HTTP 401.
 
-```text
-http://localhost:3000/api-docs
-```
+Документація API доступна через Swagger UI за адресою `/api-docs/`.
 
-Зупиніть контейнери:
+## 7. Docker
 
-```bash
-docker compose down
-```
+Dockerfile використовує базовий образ Node.js Alpine.
 
-Дані MySQL зберігаються в Docker volume `db_data`. Звичайна команда `docker compose down` не видаляє цей volume. Не використовуйте `docker compose down -v`, якщо потрібно зберегти локальні дані.
+Основні особливості:
 
-## 5. API та автентифікація
+- залежності встановлюються через `npm ci`;
+- застосунок запускається від непривілейованого користувача `node`;
+- сервер використовує порт 3000;
+- змінні середовища передаються окремо від Docker-образу.
 
-Swagger UI доступний за адресою:
+Для локального середовища Docker Compose запускає два сервіси: API та MySQL.
 
-`http://localhost:3000/api-docs`
+В AWS запускається тільки API-контейнер, а база даних розміщена в Amazon RDS.
 
-Документація дозволяє переглядати доступні маршрути, HTTP-методи, параметри та схеми відповідей.
+## 8. Infrastructure as Code — Terraform
 
-Основні групи API:
+AWS-інфраструктура описана в директорії `terraform/`.
 
-| Маршрути | Призначення |
-|---|---|
-| `/api/films` | Отримання та керування каталогом фільмів |
-| `/api/auth/register` | Реєстрація користувача |
-| `/api/auth/login` | Автентифікація користувача |
-| `/health` | Перевірка стану застосунку |
-| `/api-docs` | Інтерактивна документація API |
+Terraform використовується для створення мережі, балансувальника, EC2, RDS, ECR та ресурсів моніторингу.
 
-Для захищених операцій використовується JWT. Запити без необхідного токена мають відхилятися з HTTP `401 Unauthorized`.
-
-Під час локального тестування запит до захищеного маршруту `/api/media` без токена повернув HTTP `401`.
-
-Фактичний список маршрутів і вимоги авторизації потрібно звіряти зі Swagger UI та реалізацією в `server.js`.
-
-## 6. Розгортання в AWS за допомогою Terraform
-
-Потрібні AWS CLI, Terraform і налаштовані облікові дані AWS.
-
-Перейдіть до каталогу Terraform:
+Основні команди перевірки:
 
 ```bash
 cd terraform
-terraform init
+
+terraform fmt -check
 terraform validate
 terraform plan
 ```
 
-Перегляньте план перед застосуванням. Створення або зміна ресурсів виконується лише після окремого підтвердження:
+Під час фінальної перевірки `terraform validate` підтвердив коректність конфігурації, але повідомив про зайву змінну `db_password` у `terraform.tfvars`.
 
-```bash
-terraform apply
+Також `terraform plan` показав необхідність заміни EC2 та пов'язаного ALB target group attachment:
+
+```text
+Plan: 2 to add, 1 to change, 2 to destroy.
 ```
 
-Для перегляду адрес створених ресурсів:
+Поточний EC2 було додатково налаштовано вручну: встановлено AWS CLI v2 і Docker Compose v2, підключено IAM-дозволи та налаштовано отримання образів із ECR.
 
-```bash
-terraform output
-terraform output alb_dns_name
-terraform output ecr_repository_url
-terraform output rds_endpoint
+Terraform bootstrap ще потребує узгодження з поточним `compose.aws.yaml`, який очікує змінну `APP_IMAGE`.
+
+Тому `terraform apply` не виконувався після цієї перевірки, щоб не замінити працюючий сервер.
+
+## 9. CI/CD — GitHub Actions
+
+Автоматичний деплой реалізовано у файлі:
+
+```text
+.github/workflows/deploy.yml
 ```
 
-Публічну адресу застосунку та адресу Swagger можна отримати з output `alb_dns_name`, додавши `/api-docs` для документації.
+Workflow запускається після кожного `push` у гілку `main`.
 
-## 7. CI/CD через GitHub Actions
+Послідовність:
 
-Workflow розташований у `.github/workflows/deploy.yml` і запускається після push до гілки `main`.
+1. GitHub Actions отримує код репозиторію.
+2. Налаштовується доступ до AWS.
+3. Виконується авторизація в Amazon ECR.
+4. Збирається Docker-образ.
+5. Образ отримує теги SHA коміту та `latest`.
+6. Образ завантажується до ECR.
+7. Через AWS Systems Manager надсилається команда EC2.
+8. EC2 завантажує новий образ.
+9. Docker Compose оновлює контейнер.
+10. Виконується перевірка `/health`.
+11. GitHub Actions перевіряє результат виконання команди SSM.
 
-Поточний workflow:
+Скрипт `scripts/deploy-ec2.sh` передбачає спробу повернення до попереднього Docker-образу у випадку помилки.
 
-1. Завантажує код репозиторію.
-2. Налаштовує AWS credentials.
-3. Авторизується в Amazon ECR.
-4. Збирає Docker-образ.
-5. Публікує образ із тегом SHA коміту та тегом `latest`.
+Розгортання одного контейнера може спричинити короткочасну недоступність застосунку. Повністю безперервне оновлення не реалізовано.
 
-Тег із SHA коміту допомагає ідентифікувати конкретну версію образу.
+### Перевірений автоматичний деплой
 
-**Важливо:** успішна публікація образу в ECR сама по собі не означає, що вже запущений застосунок автоматично оновився. Для повного CD-процесу необхідно налаштувати й перевірити крок оновлення сервісу в AWS.
+GitHub Actions workflow №12.
 
-## 8. Безпека
+Коміт:
 
-У проєкті передбачено такі заходи:
+```text
+4ad02df4c3732b09d87295df949c76ab5796a097
+```
 
-- Amazon RDS налаштований з `publicly_accessible = false`.
-- Security Group бази даних дозволяє MySQL-трафік лише від Security Group застосунку.
-- Трафік до застосунку на порту 3000 дозволяється через Security Group балансувальника.
-- Для захищених операцій API використовується JWT.
-- Docker-контейнер запускається від користувача `node`, а не від `root`.
-- Паролі та інші чутливі значення не слід зберігати в репозиторії.
-- Секрети GitHub Actions мають зберігатися в налаштуваннях GitHub Secrets.
+Результат:
 
-У поточному workflow використовуються AWS Access Keys через GitHub Secrets. Використання OIDC із короткостроковими AWS credentials може додатково покращити безпеку CI/CD.
+```text
+GitHub Actions: Success
+Build and push image: Success
+Update EC2 through SSM: Success
+EC2 container: Up
+Health check: HTTP 200 OK
+```
 
-## 9. Моніторинг
+Після автоматичного оновлення перевірено:
 
-Terraform містить CloudWatch alarm для відстеження HTTP 5xx-помилок цільового застосунку та SNS-сповіщення.
+- відкриття сайту через Application Load Balancer;
+- авторизацію в раніше створеному обліковому записі;
+- наявність раніше доданого фільму;
+- успішне підключення застосунку до RDS.
 
-Повноцінний моніторинг також може включати централізоване збирання логів, CloudWatch Dashboard, метрики навантаження та сповіщення про проблеми доступності. Наявність цих компонентів необхідно перевіряти в конфігурації та AWS Console.
+Це підтверджує, що автоматичне оновлення працює, а дані зберігаються окремо від контейнера.
 
-## 10. Перевірка перед демонстрацією
+## 10. IAM та безпека
 
-- [ ] `docker compose ps` показує запущений застосунок і здорову базу даних.
-- [ ] Головна сторінка повертає HTTP 200.
-- [ ] Swagger UI відкривається.
-- [ ] Захищений endpoint без токена повертає HTTP 401.
-- [ ] `terraform validate` завершується успішно.
-- [ ] Публічний ALB доступний.
-- [ ] GitHub Actions успішно збирає та публікує образ у ECR.
-- [ ] Перевірено стан AWS-ресурсів, мережеві правила та моніторинг.
+EC2 використовує IAM-роль:
 
-## 11. Важливі зауваження
+```text
+FilmArchive-EC2-SSM
+```
 
-- Публічна адреса використовує HTTP, а не HTTPS.
-- Доступність AWS-ресурсів залежить від їхнього фактичного стану.
-- Перед видаленням інфраструктури необхідно перевірити, які ресурси та дані буде втрачено.
-- Команда `terraform destroy` видаляє керовані Terraform ресурси й має виконуватися лише тоді, коли це справді потрібно.
+До ролі підключено політики:
 
----
+```text
+AmazonSSMManagedInstanceCore
+AmazonEC2ContainerRegistryReadOnly
+```
 
-**Проєкт:** Film Archive API  
-**Репозиторій:** https://github.com/uliana-dol/film-archive
+Завдяки цьому EC2 може приймати команди AWS Systems Manager та завантажувати приватні Docker-образи з Amazon ECR.
+
+Поточний GitHub Actions використовує AWS credentials, збережені у GitHub Secrets.
+
+Перехід на GitHub OIDC ще не виконано. Під час перевірки IAM OIDC-провайдерів AWS повернув `AccessDenied` через явне обмеження Service Control Policy (SCP) організації.
+
+Для повної реалізації OIDC потрібно погодити доступ з адміністратором AWS-організації.
+
+Рекомендовані подальші покращення безпеки:
+
+- OIDC замість довгострокових AWS-ключів;
+- обмеження IAM-прав за принципом найменших привілеїв;
+- HTTPS для публічного доступу;
+- зберігання секретів у спеціалізованому менеджері секретів.
+
+## 11. Моніторинг — Amazon CloudWatch
+
+Для застосунку налаштовано CloudWatch Dashboard:
+
+```text
+FilmArchive-Monitoring
+```
+
+Dashboard призначений для перегляду метрик AWS-інфраструктури, зокрема запитів до ALB, помилок та навантаження на сервер.
+
+Також створено CloudWatch Alarm:
+
+```text
+filmarchive-alb-5xx-high
+```
+
+Під час перевірки AWS CLI:
+
+```text
+Dashboard: exists
+Alarm actions: enabled
+Alarm state: INSUFFICIENT_DATA
+```
+
+Стан `INSUFFICIENT_DATA` означає, що для оцінювання умови тривоги недостатньо доступних даних. Це не є підтвердженням несправності застосунку.
+
+Для сповіщень також передбачено Amazon SNS. Доставку повідомлень необхідно перевіряти окремо.
+
+## 12. Результати тестування
+
+У процесі виконання лабораторної підтверджено:
+
+- локальний запуск застосунку в Docker;
+- роботу контейнера від користувача `node`;
+- роботу Amazon RDS MySQL;
+- доступність застосунку через ALB;
+- успішну реєстрацію та авторизацію користувача;
+- збереження записів у базі даних;
+- доступність Swagger UI;
+- перевірку `/health` із відповіддю HTTP 200;
+- завантаження Docker-образів до Amazon ECR;
+- доступ EC2 до приватного ECR-репозиторію;
+- виконання команд через AWS Systems Manager;
+- успішний автоматичний деплой GitHub Actions;
+- збереження даних після оновлення контейнера;
+- наявність CloudWatch Dashboard та Alarm.
+
+
+## 13. Висновок
+
+У лабораторній роботі реалізовано контейнеризацію вебзастосунку FilmArchive та його розгортання в AWS.
+
+Створено хмарну інфраструктуру з EC2, RDS, ALB, ECR та CloudWatch. Реалізовано CI/CD через GitHub Actions і AWS Systems Manager.
+
+Успішний автоматичний деплой підтверджено запуском нового Docker-образу на EC2, відповіддю HTTP 200 і збереженням даних користувача в Amazon RDS.
+
+Основний результат роботи — працездатний вебзастосунок у хмарному середовищі з автоматизованим оновленням після змін у GitHub.
