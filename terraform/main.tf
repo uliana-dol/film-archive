@@ -263,11 +263,13 @@ resource "aws_instance" "app_server" {
               systemctl start docker
               systemctl enable docker
               
+              
               cd /home/ubuntu
-              umask 077
+              umask 022
               git clone https://github.com/uliana-dol/film-archive.git
               cd film-archive
 
+              umask 077
               cat <<EOT > .env
               PORT=3000
               DB_HOST=${aws_db_instance.mysql.address}
