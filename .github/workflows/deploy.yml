@@ -1,35 +1,112 @@
-name: Continuous Integration & Deployment
+name: Build and deploy FilmArchive
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: filmarchive-production
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+    timeout-minutes: 20
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-north-1
+          allowed-account-ids: '620306387556'
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+      - name: Log in to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, Tag, and Push Image to ECR
+      - name: Build and push image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: filmarchive
-          IMAGE_TAG: ${{ github.sha }}
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          SHA: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          
+          set -euo pipefail
+          IMAGE="$REGISTRY/filmarchive"
+          docker build -t "$IMAGE:$SHA" -t "$IMAGE:latest" .
+          docker push "$IMAGE:$SHA"
+          docker push "$IMAGE:latest"
+
+      - name: Update EC2 through SSM
+        env:
+          SHA: ${{ github.sha }}
+          INSTANCE_ID: i-0446078c6037546a6
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          sha = os.environ['SHA']
+          command = f'''set -eu
+          APP_DIR=/home/ubuntu/film-archive
+          test -s "$APP_DIR/.env"
+          TMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TMP_DIR"' EXIT
+          curl -fsSL --retry 3 "https://raw.githubusercontent.com/uliana-dol/film-archive/{sha}/compose.aws.yaml" -o "$TMP_DIR/compose.aws.yaml"
+          curl -fsSL --retry 3 "https://raw.githubusercontent.com/uliana-dol/film-archive/{sha}/scripts/deploy-ec2.sh" -o "$TMP_DIR/deploy-ec2.sh"
+          test -s "$TMP_DIR/compose.aws.yaml"
+          test -s "$TMP_DIR/deploy-ec2.sh"
+          mkdir -p "$APP_DIR/scripts"
+          install -m 644 "$TMP_DIR/compose.aws.yaml" "$APP_DIR/compose.aws.yaml"
+          install -m 755 "$TMP_DIR/deploy-ec2.sh" "$APP_DIR/scripts/deploy-ec2.sh"
+          bash "$APP_DIR/scripts/deploy-ec2.sh" "{sha}"
+          '''
+          with open('ssm-parameters.json', 'w', encoding='utf-8') as f:
+              json.dump({'commands': [command], 'executionTimeout': ['600']}, f)
+          PY
+
+          COMMAND_ID="$(aws ssm send-command \
+            --region eu-north-1 \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --parameters file://ssm-parameters.json \
+            --query 'Command.CommandId' \
+            --output text)"
+          echo "SSM command ID: $COMMAND_ID"
+
+          for attempt in $(seq 1 120); do
+            STATUS="$(aws ssm get-command-invocation \
+              --region eu-north-1 \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$INSTANCE_ID" \
+              --query Status \
+              --output text 2>/dev/null || true)"
+            case "$STATUS" in
+              Success)
+                aws ssm get-command-invocation --region eu-north-1 \
+                  --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                  --query 'StandardOutputContent' --output text
+                exit 0
+                ;;
+              Failed|ExecutionTimedOut|DeliveryTimedOut|Cancelled|Undeliverable|Terminated)
+                aws ssm get-command-invocation --region eu-north-1 \
+                  --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+                  --query '[Status,StandardOutputContent,StandardErrorContent]' --output json
+                exit 1
+                ;;
+            esac
+            sleep 5
+          done
+
+          echo 'ERROR: Timed out waiting for SSM deployment'
+          aws ssm get-command-invocation --region eu-north-1 \
+            --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
+            --query '[Status,StandardOutputContent,StandardErrorContent]' --output json || true
+          exit 1
