@@ -1,112 +1,52 @@
-name: Build and deploy FilmArchive
-
+name: FilmArchive Lab 2 CI / optional AWS deploy
 on:
   push:
     branches: [main]
-
+  workflow_dispatch:
 permissions:
   contents: read
-
 concurrency:
   group: filmarchive-production
   cancel-in-progress: false
-
 jobs:
-  build-and-deploy:
+  syntax-and-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v6.3.0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: |
+          node --check src/server.js
+          node --check src/worker.js
+          node --check src/controllers/mediaController.js
+  build-and-deploy:
+    needs: syntax-and-tests
+    if: vars.ENABLE_AWS_DEPLOY == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_OIDC_ROLE_ARN }}
           aws-region: eu-north-1
-          allowed-account-ids: '620306387556'
-
-      - name: Log in to Amazon ECR
+      - uses: aws-actions/amazon-ecr-login@v2
         id: ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push image
+      - name: Build and push image to ECR
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           SHA: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          IMAGE="$REGISTRY/filmarchive"
-          docker build -t "$IMAGE:$SHA" -t "$IMAGE:latest" .
-          docker push "$IMAGE:$SHA"
-          docker push "$IMAGE:latest"
-
-      - name: Update EC2 through SSM
-        env:
-          SHA: ${{ github.sha }}
-          INSTANCE_ID: i-0446078c6037546a6
+          docker build -t "$REGISTRY/filmarchive:$SHA" -t "$REGISTRY/filmarchive:latest" .
+          docker push "$REGISTRY/filmarchive:$SHA"
+          docker push "$REGISTRY/filmarchive:latest"
+      - name: Refresh autoscaling instances (requires existing ASGs)
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import json
-          import os
-
-          sha = os.environ['SHA']
-          command = f'''set -eu
-          APP_DIR=/home/ubuntu/film-archive
-          test -s "$APP_DIR/.env"
-          TMP_DIR="$(mktemp -d)"
-          trap 'rm -rf "$TMP_DIR"' EXIT
-          curl -fsSL --retry 3 "https://raw.githubusercontent.com/uliana-dol/film-archive/{sha}/compose.aws.yaml" -o "$TMP_DIR/compose.aws.yaml"
-          curl -fsSL --retry 3 "https://raw.githubusercontent.com/uliana-dol/film-archive/{sha}/scripts/deploy-ec2.sh" -o "$TMP_DIR/deploy-ec2.sh"
-          test -s "$TMP_DIR/compose.aws.yaml"
-          test -s "$TMP_DIR/deploy-ec2.sh"
-          mkdir -p "$APP_DIR/scripts"
-          install -m 644 "$TMP_DIR/compose.aws.yaml" "$APP_DIR/compose.aws.yaml"
-          install -m 755 "$TMP_DIR/deploy-ec2.sh" "$APP_DIR/scripts/deploy-ec2.sh"
-          bash "$APP_DIR/scripts/deploy-ec2.sh" "{sha}"
-          '''
-          with open('ssm-parameters.json', 'w', encoding='utf-8') as f:
-              json.dump({'commands': [command], 'executionTimeout': ['600']}, f)
-          PY
-
-          COMMAND_ID="$(aws ssm send-command \
-            --region eu-north-1 \
-            --instance-ids "$INSTANCE_ID" \
-            --document-name AWS-RunShellScript \
-            --parameters file://ssm-parameters.json \
-            --query 'Command.CommandId' \
-            --output text)"
-          echo "SSM command ID: $COMMAND_ID"
-
-          for attempt in $(seq 1 120); do
-            STATUS="$(aws ssm get-command-invocation \
-              --region eu-north-1 \
-              --command-id "$COMMAND_ID" \
-              --instance-id "$INSTANCE_ID" \
-              --query Status \
-              --output text 2>/dev/null || true)"
-            case "$STATUS" in
-              Success)
-                aws ssm get-command-invocation --region eu-north-1 \
-                  --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
-                  --query 'StandardOutputContent' --output text
-                exit 0
-                ;;
-              Failed|ExecutionTimedOut|DeliveryTimedOut|Cancelled|Undeliverable|Terminated)
-                aws ssm get-command-invocation --region eu-north-1 \
-                  --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
-                  --query '[Status,StandardOutputContent,StandardErrorContent]' --output json
-                exit 1
-                ;;
-            esac
-            sleep 5
-          done
-
-          echo 'ERROR: Timed out waiting for SSM deployment'
-          aws ssm get-command-invocation --region eu-north-1 \
-            --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" \
-            --query '[Status,StandardOutputContent,StandardErrorContent]' --output json || true
-          exit 1
+          aws autoscaling start-instance-refresh --auto-scaling-group-name filmarchive-app-asg
+          # Worker ASG may currently be scaled to zero; next created worker pulls :latest.

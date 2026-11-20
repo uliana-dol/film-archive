@@ -1,0 +1,6 @@
+# DO NOT commit real credentials in this file.
+# Copy to terraform.tfvars, which is ignored by Git.
+alert_email = "your.email@example.com"
+jwt_secret = "replace-with-a-long-random-value"
+omdb_api_key = ""
+allow_paid_deploy = false  # only after real cost approval, change to true

@@ -1,0 +1,9 @@
+#!/bin/bash
+set -Eeuo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y docker.io
+systemctl enable --now docker
+docker run -d --name filmarchive-redis --restart unless-stopped \
+  -v filmarchive_redis_data:/data -p 6379:6379 \
+  redis:7-alpine redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy noeviction

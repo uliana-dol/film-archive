@@ -1,4 +1,3 @@
-
 # Node.js
 node_modules/
 npm-debug.log*
@@ -24,3 +23,19 @@ terraform/crash.log
 *.before-security
 
 *.tfplan
+
+# Local Terraform state and credentials
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Local application configuration
+.env
+.env.*
+!.env.example
+
+# Generated load-test results
+loadtest/results-*.json
+loadtest/results-*.txt
+terraform/*.tfplan

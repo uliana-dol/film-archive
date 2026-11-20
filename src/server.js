@@ -1,10 +1,10 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const swaggerUi = require('swagger-ui-express');
 const mediaRoutes = require('./routes/mediaRoutes');
 const authRoutes = require('./routes/authRoutes');
-require('dotenv').config();
 
 const app = express();
 app.use(cors());
@@ -75,7 +75,7 @@ const swaggerDocument = {
         responses: { '200': { description: 'Успішний вхід' } }
       }
     },
-    '/api/films': {
+    '/api/media': {
       get: {
         summary: 'Отримати список фільмів',
         responses: { '200': { description: 'Успішно' } }
@@ -103,7 +103,7 @@ const swaggerDocument = {
         responses: { '201': { description: 'Фільм додано' }, '401': { description: 'Неавторизовано' } }
       }
     },
-    '/api/films/{id}': {
+    '/api/media/{id}': {
       delete: {
         summary: 'Видалити фільм за ID (потрібен JWT)',
         security: [{ bearerAuth: [] }],
@@ -133,6 +133,13 @@ const swaggerDocument = {
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const httpServer=app.listen(PORT, () => {
     console.log(`🎬 FilmArchive is running on port ${PORT}`);
 });
+
+function shutdown() {
+  httpServer.close(() => { console.log('Graceful shutdown finished'); process.exit(0); });
+  setTimeout(() => process.exit(1), 25000).unref();
+}
+process.on('SIGTERM',shutdown);
+process.on('SIGINT',shutdown);

@@ -1,422 +1,245 @@
+﻿# FilmArchive (CozyReel)
 
-# FilmArchive — AWS Cloud Deployment
+**REST API та вебзастосунок для персональної колекції фільмів, серіалів, аніме й іншого медіаконтенту.** Проєкт розвиває архітектуру лабораторної роботи №1 і реалізує завдання лабораторної роботи №2: горизонтальне масштабування, навантажувальне тестування, моніторинг, сповіщення, кешування та додаткові механізми надійної обробки запитів.
 
-**Лабораторна робота з хмарних технологій**  
-**Виконала:** Долинська Уляна, група ІР-31  
-**GitHub:** https://github.com/uliana-dol/film-archive
+Усе зібрано в [основному репозиторії FilmArchive](https://github.com/uliana-dol/film-archive). Інфраструктура описується Terraform, застосунок запускається в Docker, а результати експериментів документуються українською.
 
-FilmArchive (CozyReel) — вебзастосунок для персонального обліку фільмів та іншого медіаконтенту.
+## Можливості
 
-Проєкт реалізований на Node.js та Express, використовує MySQL для збереження даних, JWT для авторизації й Docker для контейнеризації.
+- JWT-авторизація: реєстрація та вхід користувачів.
+- Персональна медіатека: додавання, перегляд, редагування та видалення записів.
+- Метадані з OMDb API, якщо задано відповідний ключ; можливість зберігати власні записи.
+- Cache-aside для списку медіа: Redis, TTL **45 секунд**, інвалідація після зміни даних.
+- Захист повторних записів за заголовком `Idempotency-Key` із TTL **24 години**.
+- Асинхронний інтерфейс `202 Accepted` із перевіркою статусу завдання через API; черга Redis локально та Amazon SQS у хмарі.
+- Горизонтальне масштабування REST API за навантаженням, графіки CloudWatch і листи SNS.
+- Денні й нічні правила кількості EC2 для контролю витрат.
 
-Застосунок розгорнуто в AWS із використанням Terraform, EC2, Amazon RDS, Application Load Balancer, Amazon ECR та AWS Systems Manager. Автоматичне збирання й розгортання реалізоване через GitHub Actions.
+## Архітектура
 
-## 1. Посилання на застосунок
+```mermaid
+flowchart TB
+    Client[Браузер / k6 / API-клієнт] --> ALB[Application Load Balancer]
+    ALB --> ASG[EC2 Auto Scaling Group — Node.js API]
+    ASG --> RDS[(Amazon RDS MySQL)]
+    ASG --> Redis[(Redis на окремому EC2)]
+    ASG --> SQS[Amazon SQS]
+    SQS --> Worker[Окремий Auto Scaling Group — worker]
+    Worker --> RDS
+    Worker --> Redis
+    CW[CloudWatch: графіки та alarms] --> SNS[Amazon SNS: email]
+    ASG --> CW
+    SQS --> CW
+    ECR[Amazon ECR — Docker-образ] -.-> ASG
+    ECR -.-> Worker
+```
 
-- **Вебсайт:** http://filmarchive-alb-1333188652.eu-north-1.elb.amazonaws.com/
-- **Swagger UI:** http://filmarchive-alb-1333188652.eu-north-1.elb.amazonaws.com/api-docs/
-- **Health check:** http://filmarchive-alb-1333188652.eu-north-1.elb.amazonaws.com/health
-- **GitHub Actions:** https://github.com/uliana-dol/film-archive/actions
+На локальному комп'ютері API, MySQL, Redis і worker запускаються через Docker Compose. У хмарі ALB розподіляє запити між контейнерами API на EC2, RDS зберігає дані, Redis прискорює читання, а SQS забезпечує асинхронну передачу завдань обробнику.
 
-
-## 2. Використані технології
+## Технології
 
 | Компонент | Технологія |
 |---|---|
-| Backend | Node.js 20, Express |
-| Frontend | HTML, CSS, JavaScript |
-| База даних | MySQL 8 |
-| Авторизація | JWT, bcryptjs |
-| Контейнеризація | Docker, Docker Compose |
-| Хмарний провайдер | Amazon Web Services |
+| API | Node.js 22, Express, JWT |
+| Інтерфейс | HTML, CSS, JavaScript |
+| База даних | MySQL (локально MySQL 8, у AWS RDS MySQL 8.4) |
+| Кеш / ідемпотентність | Redis 7 |
+| Контейнери | Docker, Docker Compose |
+| Хмарні сервіси | AWS EC2, Auto Scaling, ALB, RDS, ECR, SQS, CloudWatch, SNS, SSM, IAM |
 | Infrastructure as Code | Terraform |
-| Сервер застосунку | Amazon EC2 |
-| Керована база даних | Amazon RDS |
-| Балансування навантаження | Application Load Balancer |
-| Реєстр образів | Amazon ECR |
-| CI/CD | GitHub Actions |
-| Віддалене розгортання | AWS Systems Manager |
-| Моніторинг | Amazon CloudWatch |
-| Документація API | Swagger UI |
+| CI/CD | GitHub Actions, AWS OIDC |
+| Навантаження | Grafana k6 |
 
-## 3. Архітектура AWS
+## Запуск локально
 
-```text
-                  КОРИСТУВАЧ
-                       |
-                       v
-            Application Load Balancer
-                  HTTP :80
-                       |
-                       v
-                  Amazon EC2
-               Docker Container
-                 Node.js :3000
-                       |
-                       v
-                  Amazon RDS
-                 MySQL :3306
-                Private Subnets
+Потрібні Docker Desktop / Docker Compose та PowerShell. Команди виконуються з кореня репозиторію.
 
-
-            АВТОМАТИЧНИЙ ДЕПЛОЙ
-
-                GitHub Repository
-                       |
-                  Push to main
-                       |
-                       v
-                 GitHub Actions
-                       |
-                 Docker Build
-                       |
-                       v
-                   Amazon ECR
-                       |
-                 Docker Image
-                       |
-                       v
-              AWS Systems Manager
-                       |
-                       v
-                  Amazon EC2
-                       |
-                Docker Compose
-                       |
-                       v
-               Updated FilmArchive
+```powershell
+Copy-Item .env.example .env
+code .env
 ```
 
-Інфраструктура створюється за допомогою Terraform.
+У `.env` потрібно встановити власні значення `DB_PASSWORD`, `MYSQL_ROOT_PASSWORD`, `JWT_SECRET`. За необхідності додати `OMDB_API_KEY`. **Не публікувати `.env`.**
 
-Вона містить:
-
-- VPC із публічними та приватними підмережами;
-- Internet Gateway та маршрутизацію;
-- Security Groups для ALB, EC2 та RDS;
-- Application Load Balancer;
-- EC2 для запуску Docker-контейнера;
-- Amazon RDS MySQL для постійного збереження даних;
-- Amazon ECR для Docker-образів;
-- CloudWatch Dashboard та Alarm.
-
-База даних RDS розміщена в приватних підмережах і не має публічного доступу.
-
-Security Group RDS дозволяє з'єднання з MySQL лише від Security Group застосунку. Порт 3000 сервера доступний через ALB.
-
-## 4. Структура проєкту
-
-```text
-film-archive/
-|
-|-- .github/
-|   `-- workflows/
-|       `-- deploy.yml
-|
-|-- scripts/
-|   `-- deploy-ec2.sh
-|
-|-- terraform/
-|   `-- main.tf
-|
-|-- src/
-|   |-- config/
-|   |-- controllers/
-|   |-- routes/
-|   `-- server.js
-|
-|-- public/
-|-- Dockerfile
-|-- compose.yaml
-|-- compose.aws.yaml
-|-- init.sql
-|-- .env.example
-|-- package.json
-`-- README.md
+```powershell
+docker compose -p film_archive_lab2 up --build -d
+docker compose -p film_archive_lab2 exec api npm run migrate
+docker compose -p film_archive_lab2 ps
 ```
 
-Призначення основних файлів:
+У перевіреній конфігурації лабораторної №2 зовнішній порт API — **3001** (порт усередині контейнера — 3000):
 
-- `Dockerfile` — створення Docker-образу застосунку.
-- `compose.yaml` — локальний запуск API та MySQL.
-- `compose.aws.yaml` — запуск готового ECR-образу на EC2.
-- `terraform/main.tf` — опис AWS-інфраструктури.
-- `.github/workflows/deploy.yml` — автоматична збірка та деплой.
-- `scripts/deploy-ec2.sh` — оновлення контейнера з перевіркою стану.
-- `init.sql` — створення таблиць бази даних.
+- Вебінтерфейс: <http://localhost:3001/>
+- Swagger: <http://localhost:3001/api-docs/>
+- Health check: <http://localhost:3001/api/health>
 
-## 5. Локальний запуск
+Якщо в локальному `compose.yaml` використано інший порт, потрібно підставити його у відповідні URL.
 
-### Вимоги
+Зупинити контейнери без видалення даних:
 
-Для локального запуску необхідні:
-
-- Git;
-- Docker Desktop;
-- Docker Compose v2.
-
-### Клонування репозиторію
-
-```bash
-git clone https://github.com/uliana-dol/film-archive.git
-cd film-archive
+```powershell
+docker compose -p film_archive_lab2 down
 ```
 
-### Налаштування середовища
+## Основні маршрути API
 
-Створити файл `.env` на основі `.env.example`.
-
-Налаштувати необхідні змінні середовища, зокрема:
-
-```env
-DB_HOST=db
-DB_PORT=3306
-DB_USER=appuser
-DB_NAME=appdb
-DB_PASSWORD=your_local_db_password
-MYSQL_ROOT_PASSWORD=your_local_root_password
-JWT_SECRET=your_local_jwt_secret
-```
-
-Ці значення є прикладами. Для реального запуску потрібно встановити власні паролі й секрети.
-
-Файл `.env` не повинен потрапляти в GitHub.
-
-### Запуск контейнерів
-
-```bash
-docker compose up --build -d
-```
-
-### Перевірка
-
-```bash
-docker compose ps
-```
-
-Локальні адреси:
-
-- Сайт: http://localhost:3000/
-- Swagger: http://localhost:3000/api-docs/
-- Health check: http://localhost:3000/health
-
-Локальна база MySQL використовує Docker volume `db_data` для збереження даних.
-
-Команда `docker compose down` зупиняє контейнери без видалення тому. Команда `docker compose down -v` видаляє також том із локальними даними.
-
-## 6. REST API
-
-Застосунок реалізує REST API для авторизації та керування медіакаталогом.
-
-| Метод | Endpoint | Призначення |
+| Метод | Маршрут | Призначення |
 |---|---|---|
-| POST | `/api/auth/register` | Реєстрація користувача |
-| POST | `/api/auth/login` | Авторизація |
-| GET | `/api/media` | Отримання записів користувача |
-| POST | `/api/media` | Додавання запису |
-| PUT | `/api/media/:id` | Редагування запису |
-| DELETE | `/api/media/:id` | Видалення запису |
-| GET | `/health` | Перевірка роботи сервера |
-| GET | `/api/health` | Перевірка стану API |
+| `POST` | `/api/auth/register` | Реєстрація |
+| `POST` | `/api/auth/login` | Вхід, отримання JWT |
+| `GET` | `/api/media` | Список медіа користувача |
+| `GET` | `/api/media/:id` | Один запис |
+| `GET` | `/api/media/me` | Профіль користувача |
+| `POST` | `/api/media` | Створення запису; підтримує `Idempotency-Key` |
+| `PUT` | `/api/media/:id` | Оновлення запису |
+| `DELETE` | `/api/media/:id` | Видалення запису |
+| `GET` | `/api/media/cache-stats` | Лічильники кешу та hit ratio |
+| `POST` | `/api/media/async` | Постановка асинхронного завдання, `202 Accepted` |
+| `GET` | `/api/media/jobs/:jobId` | Перегляд стану завдання |
+| `GET` | `/health` | Перевірка для ALB |
+| `GET` | `/api/health` | JSON health check |
 
-Маршрути медіакаталогу захищені JWT.
+Захищені маршрути `/api/media` використовують заголовок `Authorization: Bearer <JWT>`.
 
-Для виконання авторизованих запитів необхідно передавати заголовок:
+## Перевірки та навантажувальні експерименти
 
-```http
-Authorization: Bearer <JWT_TOKEN>
+Локальні перевірки:
+
+```powershell
+docker compose -p film_archive_lab2 exec api npm test
+powershell -ExecutionPolicy Bypass -File .\scripts\smoke.ps1 -BaseUrl http://localhost:3001
 ```
 
-Без авторизації запит до `/api/media` повертає HTTP 401.
+**Перевірені результати:** 7 із 7 автоматизованих тестів успішні; локальний smoke-тест пройшов усі 5 етапів. В AWS підтверджено авторизацію, профіль, ідемпотентність і Redis. Для асинхронного запису передбачено окремий маршрут та [технічний звіт QUEUE.md](docs/QUEUE.md).
 
-Документація API доступна через Swagger UI за адресою `/api-docs/`.
+Навантажувальний сценарій у [`loadtest/filmarchive.js`](loadtest/filmarchive.js) за одну ітерацію виконує **один POST і дев'ять GET-запитів**. Тривалість — **10 хвилин:** 3 хв наростання, 5 хв стабільного навантаження та 2 хв спаду.
 
-## 7. Docker
-
-Dockerfile використовує базовий образ Node.js Alpine.
-
-Основні особливості:
-
-- залежності встановлюються через `npm ci`;
-- застосунок запускається від непривілейованого користувача `node`;
-- сервер використовує порт 3000;
-- змінні середовища передаються окремо від Docker-образу.
-
-Для локального середовища Docker Compose запускає два сервіси: API та MySQL.
-
-В AWS запускається тільки API-контейнер, а база даних розміщена в Amazon RDS.
-
-## 8. Infrastructure as Code — Terraform
-
-AWS-інфраструктура описана в директорії `terraform/`.
-
-Terraform використовується для створення мережі, балансувальника, EC2, RDS, ECR та ресурсів моніторингу.
-
-Основні команди перевірки:
-
-```bash
-cd terraform
-
-terraform fmt -check
-terraform validate
-terraform plan
+```powershell
+k6 run `
+  -e BASE_URL=http://localhost:3001 `
+  -e VUS=10 `
+  -e RUN_ID=local01 `
+  --summary-export=loadtest/results-local01.json `
+  .\loadtest\filmarchive.js
 ```
 
-Під час фінальної перевірки `terraform validate` підтвердив коректність конфігурації, але повідомив про зайву змінну `db_password` у `terraform.tfvars`.
+### Результати експериментів 19–20.11.2026
 
-Також `terraform plan` показав необхідність заміни EC2 та пов'язаного ALB target group attachment:
+| Середовище / сценарій | HTTP-запитів | Запитів/с | p50 | p95 | p99 |
+|---|---:|---:|---:|---:|---:|
+| Локально, Redis увімкнений (`local01`) | 128 000 | 213,29 | 11,97 мс | 62,99 мс | 102 мс |
+| Локально, Redis вимкнений (`nocache01`) | 149 920 | 249,84 | 10,17 мс | 40,35 мс | 61,54 мс |
+| AWS, перший k6 (`aws-lab2-final`) | 43 550 | 72,44 | 200,96 мс | 841,40 мс | 1,45 с |
+
+Локальні прогони проведено послідовно в різних станах бази даних, тому їх не можна інтерпретувати як ізольований експеримент, що доводить перевагу одного режиму. Докладні результати другого хмарного прогону `aws-scale02` заповнені з локального JSON в [`docs/LOADTEST.md`](docs/LOADTEST.md).
+
+## AWS Auto Scaling і моніторинг
+
+Інфраструктура FilmArchive створена Terraform у `eu-north-1` та перевірена в AWS. Група API налаштована на **мінімум 1, максимум 3 EC2**. Для керування кількістю використовуються:
+
+- CPU policy — ціль **60%** середнього використання процесора, підтримує збільшення та зменшення кількості EC2.
+- Requests policy — ціль **1 000 запитів на хвилину на екземпляр** (`ALBRequestCountPerTarget`), використовується для scale-out; її власний scale-in вимкнений.
+- Період прогрівання нового інстанса — **180 секунд**.
+
+**Зафіксований результат другого AWS-тесту:** автоматичне масштабування API **1 → 3 → 1 EC2**. Основним тригером у цьому експерименті була кількість запитів, а не перевищення 60% CPU.
+
+CloudWatch Dashboard `FilmArchive-Lab2-Monitoring` містить п'ять обов'язкових графіків: бажана/фактична кількість серверів, CPU, запити за хвилину, p95, 5xx. Окремий графік показує чергу SQS і кількість worker. Для метрики 5xx в обраному інтервалі AWS не повертав точок, що відображено на графіку як `No data available`.
+
+![Динаміка навантаження й автоматичне масштабування FilmArchive](docs/screenshots/scale-cycle.png)
+
+Деталі: [AUTOSCALING.md](docs/AUTOSCALING.md) та [LOADTEST.md](docs/LOADTEST.md).
+
+## Сповіщення CloudWatch і SNS
+
+Створено правило `filmarchive-app-max-replicas`: якщо **три API-екземпляри працюють протягом двох хвилин**, CloudWatch переходить у стан `ALARM`; після зменшення кількості серверів повертається до `OK`. Повідомлення надходять через підтверджену SNS-підписку.
+
+Зафіксовані переходи **20.11.2026**:
+
+| Стан | Час UTC | Час Київ (UTC+2) |
+|---|---|---|
+| `OK → ALARM` | 03:11:32 | 05:11:32 |
+| `ALARM → OK` | 03:31:32 | 05:31:32 |
+
+Тривалість стану тривоги — **20 хвилин**. Обидва листи зафіксовано у [ALERTS.md](docs/ALERTS.md) разом зі скриншотами та аналізом затримок.
+
+## Кеш, черга, ідемпотентність і розклад
+
+- **Redis cache-aside:** читання списку з кешу; TTL 45 с; інвалідація при записі; статистика hit/miss. [CACHE.md](docs/CACHE.md)
+- **Асинхронна обробка:** `202 Accepted`, SQS Standard і worker EC2, масштабування worker від появи повідомлень у черзі. [QUEUE.md](docs/QUEUE.md)
+- **Ідемпотентність:** `Idempotency-Key`, повторний запит повертає раніше збережений результат; TTL у Redis 86 400 с. Реальним тестом підтверджено один запис для повторних запитів. [IDEMPOTENCY.md](docs/IDEMPOTENCY.md)
+- **Масштабування за розкладом:** **06:00 UTC** — мінімум 2, **20:00 UTC** — мінімум 1; це відповідає 08:00/22:00 за Києвом у зимовий час. [SCHEDULE.md](docs/SCHEDULE.md)
+
+## Структура проєкту
 
 ```text
-Plan: 2 to add, 1 to change, 2 to destroy.
+film_archive/
+├── .github/workflows/deploy.yml  
+├── docs/
+│   ├── AUTOSCALING.md
+│   ├── LOADTEST.md
+│   ├── ALERTS.md
+│   ├── CACHE.md
+│   ├── QUEUE.md
+│   ├── IDEMPOTENCY.md
+│   ├── SCHEDULE.md
+│   └── screenshots/
+├── loadtest/
+│   ├── filmarchive.js
+│   ├── queue.js
+│   └── README.md
+├── scripts/
+│   ├── smoke.ps1
+│   └── aws-readonly-check.ps1
+├── src/
+│   ├── controllers/
+│   ├── routes/
+│   ├── lib/
+│   ├── bootstrap-db.js
+│   ├── migrate.js
+│   ├── server.js
+│   └── worker.js
+├── terraform/
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── autoscaling.tf
+│   ├── request-scaling.tf
+│   ├── monitoring.tf
+│   ├── oidc.tf
+│   └── templates/
+├── tests/
+├── public/
+├── compose.yaml
+├── compose.aws.yaml
+├── Dockerfile
+├── init.sql
+└── README.md
 ```
 
-Поточний EC2 було додатково налаштовано вручну: встановлено AWS CLI v2 і Docker Compose v2, підключено IAM-дозволи та налаштовано отримання образів із ECR.
+## Безпека та робота з AWS
 
-Terraform bootstrap ще потребує узгодження з поточним `compose.aws.yaml`, який очікує змінну `APP_IMAGE`.
+- AWS використовує IAM-ролі, SSM Parameter Store (`SecureString`) та GitHub Actions OIDC; секрети не записуються в коміти.
+- Не додавати до Git: `.env`, будь-які приватні `.tfvars`, `terraform.tfstate`, плани Terraform, облікові дані AWS чи тимчасові Docker-токени.
+- Terraform state для практичного AWS-розгортання зберігається в **окремому робочому каталозі**, щоб не змішувати його зі станом лабораторної №1. Основні `.tf`-файли містяться в репозиторії.
+- `terraform apply` створює ресурси, що можуть споживати AWS-кредити: EC2, RDS, ALB та інші. Після демонстрації та збереження доказів ресурси прибирають із **правильного** Terraform workspace, перевіривши наслідки видалення бази даних.
 
-Тому `terraform apply` не виконувався після цієї перевірки, щоб не замінити працюючий сервер.
+## Документація лабораторної №2
 
-## 9. CI/CD — GitHub Actions
-
-Автоматичний деплой реалізовано у файлі:
-
-```text
-.github/workflows/deploy.yml
-```
-
-Workflow запускається після кожного `push` у гілку `main`.
-
-Послідовність:
-
-1. GitHub Actions отримує код репозиторію.
-2. Налаштовується доступ до AWS.
-3. Виконується авторизація в Amazon ECR.
-4. Збирається Docker-образ.
-5. Образ отримує теги SHA коміту та `latest`.
-6. Образ завантажується до ECR.
-7. Через AWS Systems Manager надсилається команда EC2.
-8. EC2 завантажує новий образ.
-9. Docker Compose оновлює контейнер.
-10. Виконується перевірка `/health`.
-11. GitHub Actions перевіряє результат виконання команди SSM.
-
-Скрипт `scripts/deploy-ec2.sh` передбачає спробу повернення до попереднього Docker-образу у випадку помилки.
-
-Розгортання одного контейнера може спричинити короткочасну недоступність застосунку. Повністю безперервне оновлення не реалізовано.
-
-### Перевірений автоматичний деплой
-
-GitHub Actions workflow №12.
-
-Коміт:
-
-```text
-4ad02df4c3732b09d87295df949c76ab5796a097
-```
-
-Результат:
-
-```text
-GitHub Actions: Success
-Build and push image: Success
-Update EC2 through SSM: Success
-EC2 container: Up
-Health check: HTTP 200 OK
-```
-
-Після автоматичного оновлення перевірено:
-
-- відкриття сайту через Application Load Balancer;
-- авторизацію в раніше створеному обліковому записі;
-- наявність раніше доданого фільму;
-- успішне підключення застосунку до RDS.
-
-Це підтверджує, що автоматичне оновлення працює, а дані зберігаються окремо від контейнера.
-
-## 10. IAM та безпека
-
-EC2 використовує IAM-роль:
-
-```text
-FilmArchive-EC2-SSM
-```
-
-До ролі підключено політики:
-
-```text
-AmazonSSMManagedInstanceCore
-AmazonEC2ContainerRegistryReadOnly
-```
-
-Завдяки цьому EC2 може приймати команди AWS Systems Manager та завантажувати приватні Docker-образи з Amazon ECR.
-
-Поточний GitHub Actions використовує AWS credentials, збережені у GitHub Secrets.
-
-Перехід на GitHub OIDC ще не виконано. Під час перевірки IAM OIDC-провайдерів AWS повернув `AccessDenied` через явне обмеження Service Control Policy (SCP) організації.
-
-Для повної реалізації OIDC потрібно погодити доступ з адміністратором AWS-організації.
-
-Рекомендовані подальші покращення безпеки:
-
-- OIDC замість довгострокових AWS-ключів;
-- обмеження IAM-прав за принципом найменших привілеїв;
-- HTTPS для публічного доступу;
-- зберігання секретів у спеціалізованому менеджері секретів.
-
-## 11. Моніторинг — Amazon CloudWatch
-
-Для застосунку налаштовано CloudWatch Dashboard:
-
-```text
-FilmArchive-Monitoring
-```
-
-Dashboard призначений для перегляду метрик AWS-інфраструктури, зокрема запитів до ALB, помилок та навантаження на сервер.
-
-Також створено CloudWatch Alarm:
-
-```text
-filmarchive-alb-5xx-high
-```
-
-Під час перевірки AWS CLI:
-
-```text
-Dashboard: exists
-Alarm actions: enabled
-Alarm state: INSUFFICIENT_DATA
-```
-
-Стан `INSUFFICIENT_DATA` означає, що для оцінювання умови тривоги недостатньо доступних даних. Це не є підтвердженням несправності застосунку.
-
-Для сповіщень також передбачено Amazon SNS. Доставку повідомлень необхідно перевіряти окремо.
-
-## 12. Результати тестування
-
-У процесі виконання лабораторної підтверджено:
-
-- локальний запуск застосунку в Docker;
-- роботу контейнера від користувача `node`;
-- роботу Amazon RDS MySQL;
-- доступність застосунку через ALB;
-- успішну реєстрацію та авторизацію користувача;
-- збереження записів у базі даних;
-- доступність Swagger UI;
-- перевірку `/health` із відповіддю HTTP 200;
-- завантаження Docker-образів до Amazon ECR;
-- доступ EC2 до приватного ECR-репозиторію;
-- виконання команд через AWS Systems Manager;
-- успішний автоматичний деплой GitHub Actions;
-- збереження даних після оновлення контейнера;
-- наявність CloudWatch Dashboard та Alarm.
+| Завдання лабораторної №2 | Звіт |
+|---|---|
+| 1. Автоматичне масштабування | [docs/AUTOSCALING.md](docs/AUTOSCALING.md) |
+| 2. Навантажувальне тестування | [docs/LOADTEST.md](docs/LOADTEST.md) |
+| 3. Панель моніторингу | [docs/AUTOSCALING.md](docs/AUTOSCALING.md) |
+| 4. Сповіщення | [docs/ALERTS.md](docs/ALERTS.md) |
+| 5. Кешування | [docs/CACHE.md](docs/CACHE.md) |
+| 6. Черга й worker (бонус) | [docs/QUEUE.md](docs/QUEUE.md) |
+| 7. Ідемпотентність (бонус) | [docs/IDEMPOTENCY.md](docs/IDEMPOTENCY.md) |
+| 8. Масштабування за розкладом (бонус) | [docs/SCHEDULE.md](docs/SCHEDULE.md) |
 
 
-## 13. Висновок
+## Результати фінальної перевірки AWS (20.11.2026)
 
-У лабораторній роботі реалізовано контейнеризацію вебзастосунку FilmArchive та його розгортання в AWS.
-
-Створено хмарну інфраструктуру з EC2, RDS, ALB, ECR та CloudWatch. Реалізовано CI/CD через GitHub Actions і AWS Systems Manager.
-
-Успішний автоматичний деплой підтверджено запуском нового Docker-образу на EC2, відповіддю HTTP 200 і збереженням даних користувача в Amazon RDS.
-
-Основний результат роботи — працездатний вебзастосунок у хмарному середовищі з автоматизованим оновленням після змін у GitHub.
+- Навантажувальний тест Grafana k6: **48 580 HTTP-запитів за 10 хв, 0% помилок, p95 = 636,84 мс, 30 VU**.
+- Автоматичне масштабування API з **1 до 3 EC2**, подальше зменшення; окремий контрольований CPU-стрес-тест підтвердив перетин порогу **60%** і пік **100% CPU**.
+- Реальні SNS-сповіщення `ALARM` та `OK` від **07:10:32** і **07:23:32** за Києвом відповідно.
+- SQS: Auto Scaling worker реагує на чергу, асинхронне створення запису перевірено (`Async OK, id=11338`), основна черга і DLQ після обробки порожні.
+- Докладні результати: [AUTOSCALING.md](docs/AUTOSCALING.md), [LOADTEST.md](docs/LOADTEST.md), [ALERTS.md](docs/ALERTS.md), [QUEUE.md](docs/QUEUE.md).

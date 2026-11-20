@@ -1,11 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const mediaController = require('../controllers/mediaController');
+const c = require('../controllers/mediaController');
 const { verifyToken } = require('../controllers/authController');
-
-router.get('/', verifyToken, mediaController.getAllMedia);
-router.post('/', verifyToken, mediaController.addMedia);
-router.put('/:id', verifyToken, mediaController.updateMedia);
-router.delete('/:id', verifyToken, mediaController.deleteMedia);
-
-module.exports = router;
+router.use(verifyToken);
+router.get('/',c.getAllMedia);
+router.get('/me',c.getMe);
+router.get('/cache-stats',c.cacheStats);
+router.post('/',c.addMedia);
+router.post('/async',c.addMediaAsync);
+router.get('/jobs/:jobId',c.jobStatus);
+router.get('/:id',c.getOneMedia);
+router.put('/:id',c.updateMedia);
+router.delete('/:id',c.deleteMedia);
+module.exports=router;

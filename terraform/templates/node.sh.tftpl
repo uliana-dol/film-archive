@@ -1,0 +1,33 @@
+#!/bin/bash
+set -Eeuo pipefail
+exec > >(tee /var/log/filmarchive-bootstrap.log | logger -t filmarchive -s 2>/dev/console) 2>&1
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y
+apt-get install -y docker.io awscli jq
+systemctl enable --now docker
+mkdir -p /etc/filmarchive
+umask 077
+aws ssm get-parameter --region '${region}' --name '${secret_parameter}' --with-decryption --output json \
+  | jq -r '.Parameter.Value | fromjson | to_entries[] | "\(.key)=\(.value|tostring)"' \
+  > /etc/filmarchive/app.env
+cat >> /etc/filmarchive/app.env <<'VARS'
+REDIS_URL=redis://${redis_private_ip}:6379
+QUEUE_BACKEND=sqs
+SQS_QUEUE_URL=${sqs_url}
+AWS_REGION=${region}
+CACHE_ENABLED=${cache_enabled}
+CACHE_TTL_SECONDS=45
+METADATA_LOOKUP=true
+VARS
+chmod 600 /etc/filmarchive/app.env
+aws ecr get-login-password --region '${region}' | docker login --username AWS --password-stdin '${ecr_registry}'
+docker pull '${image_uri}'
+%{ if role == "api" ~}
+# Prepare required tables before the API starts on a fresh RDS.
+docker run --rm --env-file /etc/filmarchive/app.env '${image_uri}' node src/bootstrap-db.js
+docker run -d --name filmarchive-api --restart unless-stopped --env-file /etc/filmarchive/app.env \
+  -p 3000:3000 '${image_uri}'
+%{ else ~}
+docker run -d --name filmarchive-worker --restart unless-stopped --env-file /etc/filmarchive/app.env \
+  '${image_uri}' node src/worker.js
+%{ endif ~}

@@ -1,90 +1,63 @@
 const pool = require('../config/db');
+const cache = require('../lib/cache');
+const {createMedia,validateMedia} = require('../lib/media');
+const {perform} = require('../lib/idempotency');
+const queue = require('../lib/queue');
+const {randomUUID,createHash} = require('node:crypto');
 
-exports.getAllMedia = async (req, res) => {
-    try {
-        const [rows] = await pool.query('SELECT * FROM media_tracker WHERE user_id = ? ORDER BY created_at DESC', [req.user.userId]);        res.json(rows);
-    } catch (error) {
-        res.status(500).json({ error: 'Database error' });
-    }
+const handleError=(res,err)=>{console.error(err);return res.status(err.status||500).json({error:err.status?err.message:'Internal server error'});};
+exports.getAllMedia = async (req,res) => {
+  try {
+    const hit=await cache.read(req.user.userId);
+    if (hit !== null) return res.json(hit);
+    const [rows]=await pool.query('SELECT * FROM media_tracker WHERE user_id = ? ORDER BY created_at DESC, id DESC',[req.user.userId]);
+    await cache.store(req.user.userId,rows);
+    return res.json(rows);
+  } catch(err) {return handleError(res,err);}
 };
-
-exports.addMedia = async (req, res) => {
-    let { title, media_type, watch_status, season_vibe, rating, custom_poster, custom_url } = req.body;
-    
-    let genre = null, release_year = null, country = null, duration = null, plot = null, actors = null;
-    let poster_url = custom_poster || custom_url || null;
-
-    try {
-        if (media_type === 'Movie' || media_type === 'Cartoon' || media_type === 'Anime Movie') {
-            const omdbKey = process.env.OMDB_API_KEY; 
-            const response = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(title)}&type=movie&apikey=${omdbKey}`);
-            const data = await response.json();
-            
-            if (data.Response === "True") {
-                genre = data.Genre !== "N/A" ? data.Genre : null;
-                release_year = data.Year !== "N/A" ? data.Year : null;
-                country = data.Country !== "N/A" ? data.Country : null;
-                duration = data.Runtime !== "N/A" ? data.Runtime : null;
-                plot = data.Plot !== "N/A" ? data.Plot : null;
-                actors = data.Actors !== "N/A" ? data.Actors : null;
-                title = data.Title !== "N/A" ? data.Title : title; 
-                if (!poster_url && data.Poster !== "N/A") poster_url = data.Poster;
-            }
-        } else {
-            const response = await fetch(`https://api.tvmaze.com/singlesearch/shows?q=${encodeURIComponent(title)}&embed=cast`);
-            const info = await response.json();
-            
-            if (info && info.id) {
-                genre = info.genres && info.genres.length > 0 ? info.genres.join(', ') : null;
-                release_year = info.premiered ? info.premiered.substring(0, 4) : null;
-                country = info.network && info.network.country ? info.network.country.name : (info.webChannel && info.webChannel.country ? info.webChannel.country.name : null);
-                plot = info.summary ? info.summary.replace(/<[^>]*>?/gm, '') : null;
-                duration = info.averageRuntime ? info.averageRuntime + ' min/ep' : null;
-                title = info.name || title;
-                
-                if (info._embedded && info._embedded.cast && info._embedded.cast.length > 0) {
-                    actors = info._embedded.cast.slice(0, 4).map(c => c.person.name).join(', ');
-                }
-                
-                if (!poster_url && info.image && info.image.original) poster_url = info.image.original;
-            }
-        }
-    } catch (err) {
-        console.log("Internet search failed or no results");
-    }
-
-    try {
-        const [result] = await pool.query(
-            `INSERT INTO media_tracker (user_id, title, media_type, watch_status, season_vibe, rating, genre, release_year, country, duration, plot, actors, poster_url) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [req.user.userId, title, media_type, watch_status, season_vibe, rating || null, genre, release_year, country, duration, plot, actors, poster_url]
-        );
-        res.status(201).json({ message: 'Added!', id: result.insertId });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to add', details: error.message });
-    }
+exports.getOneMedia = async (req,res) => {
+  try { const [rows]=await pool.query('SELECT * FROM media_tracker WHERE id=? AND user_id=?',[req.params.id,req.user.userId]);
+    return rows.length?res.json(rows[0]):res.status(404).json({error:'Not found'});
+  } catch(err){return handleError(res,err);}
 };
-
-exports.updateMedia = async (req, res) => {
-    const { id } = req.params;
-    const { title, watch_status, rating, genre, release_year, country, duration, plot, actors, season_vibe } = req.body;
-    try {
-        await pool.query(
-            `UPDATE media_tracker SET title=?, watch_status=?, rating=?, genre=?, release_year=?, country=?, duration=?, plot=?, actors=?, season_vibe=? WHERE id=? AND user_id=?`,
-            [title, watch_status, rating || null, genre, release_year, country, duration, plot, actors, season_vibe, id, req.user.userId]
-        );
-        res.json({ message: 'Updated!' });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update' });
-    }
+exports.getMe=async(req,res)=>res.json({id:req.user.userId,username:req.user.username});
+exports.cacheStats=async(req,res)=>{try{return res.json(await cache.stats());}catch(err){return handleError(res,err);}};
+exports.addMedia=async(req,res)=>{
+  try {const r=await perform(req,async()=>({status:201,body:await createMedia(req.user.userId,req.body,req.get('Idempotency-Key'))}));return res.status(r.status).json(r.body);}
+  catch(err){return handleError(res,err);}
 };
-
-exports.deleteMedia = async (req, res) => {
-    const { id } = req.params;
-    try {
-        await pool.query('DELETE FROM media_tracker WHERE id = ? AND user_id = ?', [id, req.user.userId]);
-        res.json({ message: 'Deleted!' });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to delete' });
-    }
+exports.addMediaAsync=async(req,res)=>{
+  try {
+    validateMedia(req.body);
+    const result=await perform(req,async()=>{
+      const key=req.get('Idempotency-Key');
+      const digest= key ? createHash('sha256').update(`${req.user.userId}:${key}`).digest('hex') : null;
+      const jobId=digest ? `${digest.slice(0,8)}-${digest.slice(8,12)}-${digest.slice(12,16)}-${digest.slice(16,20)}-${digest.slice(20,32)}` : randomUUID();
+      await pool.query('INSERT IGNORE INTO media_jobs (job_id,user_id,state) VALUES (?, ?, ?)',[jobId,req.user.userId,'pending']);
+      try {await queue.send({jobId,userId:req.user.userId,media:req.body});}
+      catch(err){await pool.query('UPDATE media_jobs SET state=? WHERE job_id=?',['failed',jobId]);throw err;}
+      return {status:202,body:{job_id:jobId,status:'pending',status_url:`/api/media/jobs/${jobId}`}};
+    });
+    return res.status(result.status).json(result.body);
+  } catch(err){return handleError(res,err);}
+};
+exports.jobStatus=async(req,res)=>{
+  try {const [rows]=await pool.query('SELECT job_id,state,media_id,error_text,created_at,completed_at FROM media_jobs WHERE job_id=? AND user_id=?',[req.params.jobId,req.user.userId]);
+    if (!rows.length) return res.status(404).json({error:'Job not found'});
+    return res.json(rows[0]);
+  } catch(err){return handleError(res,err);}
+};
+exports.updateMedia=async(req,res)=>{
+  const b=req.body;
+  try {const [r]=await pool.query('UPDATE media_tracker SET title=?,watch_status=?,rating=?,genre=?,release_year=?,country=?,duration=?,plot=?,actors=?,season_vibe=? WHERE id=? AND user_id=?',
+    [b.title,b.watch_status,b.rating??null,b.genre??null,b.release_year??null,b.country??null,b.duration??null,b.plot??null,b.actors??null,b.season_vibe??'None',req.params.id,req.user.userId]);
+    if(!r.affectedRows) return res.status(404).json({error:'Not found'});
+    await cache.invalidate(req.user.userId);return res.json({message:'Updated!'});
+  } catch(err){return handleError(res,err);}
+};
+exports.deleteMedia=async(req,res)=>{
+  try {const [r]=await pool.query('DELETE FROM media_tracker WHERE id=? AND user_id=?',[req.params.id,req.user.userId]);
+    if(!r.affectedRows) return res.status(404).json({error:'Not found'});
+    await cache.invalidate(req.user.userId);return res.json({message:'Deleted!'});
+  } catch(err){return handleError(res,err);}
 };
