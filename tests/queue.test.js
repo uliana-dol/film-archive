@@ -12,7 +12,7 @@ test('SQS JSON client signs request using AWS SigV4 (offline fake fetch)',async(
     let captured;
     global.fetch=async(url,init)=>{
       captured={url,init};
-      return {ok:true,json:async()=>({MessageId:'dummy'})};
+      return {ok:true,status:200,text:async()=>JSON.stringify({MessageId:'dummy'})};
     };
     const queue=require('../src/lib/queue');
     const r=await queue.send({jobId:'test-123',userId:1});
